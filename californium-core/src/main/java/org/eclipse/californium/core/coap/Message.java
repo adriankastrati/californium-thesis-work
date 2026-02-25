@@ -796,10 +796,9 @@ public abstract class Message {
 			if (NetworkInterfacesUtil.isBroadcastAddress(address)) {
 				throw new IllegalArgumentException(
 						"Broadcast destination " + StringUtil.toString(address) + " only supported for request!");
-			} else if (NetworkInterfacesUtil.isMultiAddress(address)) {
-				throw new IllegalArgumentException(
-						"Multicast destination " + StringUtil.toString(address) + " only supported for request!");
 			}
+			// Multicast addresses are allowed for multicast observe notifications
+			// per draft-ietf-core-observe-multicast-notifications
 		}
 		this.destinationContext = peerContext;
 		this.effectiveDestinationContext = peerContext;

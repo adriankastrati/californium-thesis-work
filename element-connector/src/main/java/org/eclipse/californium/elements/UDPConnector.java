@@ -41,6 +41,7 @@ import java.io.InterruptedIOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -497,10 +498,17 @@ public class UDPConnector implements Connector {
 			if (currentSocket != null) {
 				try {
 					raw.onContextEstablished(connectionContext);
-					currentSocket.send(datagram);
-					raw.onSent();
+					if (datagram.getAddress().isMulticastAddress()) {
+          try (MulticastSocket multicastSocket = new MulticastSocket()) {
+            multicastSocket.send(datagram);
+          }
+        } else {
+          currentSocket.send(datagram);
+        }	
+          raw.onSent();
 				} catch (IOException ex) {
 					raw.onError(ex);
+					LOGGER.debug("UDPConnector Error {} for message to address {} with payload {}",ex.getMessage(),datagram.getAddress(),datagram.getData());
 				}
 				LOGGER.debug("UDPConnector ({}) sent {} bytes to {}", this, datagram.getLength(),
 						StringUtil.toLog(destinationAddress));

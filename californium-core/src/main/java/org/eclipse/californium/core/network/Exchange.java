@@ -366,6 +366,59 @@ public class Exchange {
 	private byte[] cryptoContextId;
 
 	/**
+	 * Set to true when server sends phantom request,
+	 * request should not be sent on wire
+	 */
+  private boolean phantomRequest = false;
+
+	public boolean isPhantomRequest(){
+    return phantomRequest;
+  };
+  
+	public void setPhantomRequest(boolean bool){
+    phantomRequest = bool;
+  }
+	/**
+	 * If not null, request has traversed OSCORE layer,
+	 * encrypted request copied as is to this field
+	 */
+	private byte[] protectedRequest = null;
+	
+	public byte[] getProtectedRequest() {
+		return protectedRequest;
+	}
+
+	public void setProtectedRequest(byte[] protectedRequest) {
+		this.protectedRequest = protectedRequest;
+	}
+
+	/**
+	 * If true, Observe layer does not send response to layer below
+	 */
+	private boolean suppressResponse;
+	
+	public boolean isSuppressResponse() {
+		return suppressResponse;
+	}
+
+	public void setSuppressResponse(boolean suppressResponse) {
+		this.suppressResponse = suppressResponse;
+	}
+
+	/**
+	 * If true, OSCORE layer does not protect outgoing response
+	 */
+	private boolean skipResponseProtection;
+	
+	public boolean isSkipResponseProtection() {
+		return skipResponseProtection;
+	}
+	
+	public void setSkipResponseProtection(boolean skipResponseProtection) {
+		this.skipResponseProtection = skipResponseProtection;
+	}
+	
+	/**
 	 * Creates a new exchange with the specified request and origin.
 	 * 
 	 * Note: since 3.9 {@code null} as executor doesn't longer fail with a
@@ -1308,6 +1361,29 @@ public class Exchange {
 	 */
 	public void setRelation(ObserveRelation relation) {
 		assertOwner();
+		setRelationInternal(relation);
+	}
+
+	/**
+	 * Sets the observe relation without executor ownership check.
+	 * <p>
+	 * Used for phantom exchanges in multicast observe notifications where
+	 * the relation is set during inline delivery from a different exchange's
+	 * executor context.
+	 * 
+	 * @param relation the CoAP observe relation
+	 * @throws NullPointerException if provided relation is {@code null}
+	 * @throws IllegalStateException if relation was already set before
+	 * @since 4.0
+	 */
+	public void setRelationForPhantom(ObserveRelation relation) {
+		setRelationInternal(relation);
+	}
+
+	/**
+	 * Internal method to set the relation.
+	 */
+	private void setRelationInternal(ObserveRelation relation) {
 		if (relation == null) {
 			throw new NullPointerException("Observer relation must not be null!");
 		}

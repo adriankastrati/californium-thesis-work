@@ -98,12 +98,19 @@ public class MediaTypeRegistry {
 	// implementation specific
 	public static final int UNDEFINED = -1;
 
+
+  // For observe notifications responses, TODO_A change when decided which id
+	public static final int APPLICATION_INFORMATIVE_RESPONSE_CBOR = 12;
+
+
 	private static final int[] EMPTY = new int[0];
 
 	// initializer
 	private static final Map<Integer, MediaTypeDefintion> registry = new ConcurrentHashMap<>();
 
 	static {
+  // For observe notifications responses,
+		addNonPrintable(APPLICATION_INFORMATIVE_RESPONSE_CBOR, "application/informative-response+cbor", "cbor");
 
 		addPrintable(TEXT_PLAIN, "text/plain", "txt", true);
 

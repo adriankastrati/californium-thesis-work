@@ -193,7 +193,7 @@ public final class UdpMatcher extends BaseMatcher {
 				}
 			}
 		}
-
+		LOGGER.info("Sending response {} to {}",response.getPayload(), response.getDestinationContext().getPeerAddress().toString());
 		// Only CONs and Observe keep the exchange active (CoAP server side)
 		if (ready && !exchange.getMultiResponse()) {
 			exchange.setComplete();

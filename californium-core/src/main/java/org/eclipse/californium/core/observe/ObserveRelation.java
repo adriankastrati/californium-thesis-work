@@ -205,7 +205,12 @@ public class ObserveRelation {
 		}
 		this.remoteEndpoint = endpoint;
 		this.remoteEndpoint.addObserveRelation(this);
-		this.exchange.setRelation(this);
+		// For phantom exchanges, use the method that bypasses executor ownership check
+		if (this.exchange.isPhantomRequest()) {
+			this.exchange.setRelationForPhantom(this);
+		} else {
+			this.exchange.setRelation(this);
+		}
 	}
 
 	/**

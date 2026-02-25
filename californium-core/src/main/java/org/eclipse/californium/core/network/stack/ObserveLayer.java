@@ -36,19 +36,27 @@
  ******************************************************************************/
 package org.eclipse.californium.core.network.stack;
 
+import java.net.InetSocketAddress;
+import java.util.List;
+
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.EmptyMessage;
 import org.eclipse.californium.core.coap.MessageObserverAdapter;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
+import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.network.Exchange;
 import org.eclipse.californium.core.network.Exchange.Origin;
+import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.core.observe.ObserveRelation.State;
+import org.eclipse.californium.elements.AddressEndpointContext;
+import org.eclipse.californium.elements.EndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 /**
  * UDP observe layer.
@@ -65,6 +73,76 @@ public class ObserveLayer extends AbstractLayer {
 	 */
 	public ObserveLayer(final Configuration config) {
 		// so far no configuration values for this layer
+	}
+
+	/**
+	 * Recognizes if a request is a phantom request for multicast observe notifications.
+	 * <p>
+	 * Per draft-ietf-core-observe-multicast-notifications, a phantom request is recognized if:
+	 * <ul>
+	 * <li>The request has the Observe option with value 0; AND</li>
+	 * <li>The token value is currently in pendingMulticastNotifTokens for the URI-path; AND</li>
+	 * <li>If NOT OSCORE-protected: source address and port are the server's own; AND</li>
+	 * <li>If OSCORE-protected: either the 'kid' matches the server's Sender ID and source is own,
+	 *     OR the 'kid' matches the Deterministic Client and request matches stored deterministic request</li>
+	 * </ul>
+	 * 
+	 * @param exchange the exchange containing the request
+	 * @return true if this is a phantom request
+	 */
+	private boolean isPhantomRequest(final Exchange exchange) {
+		Request request = exchange.getCurrentRequest();
+		Token token = request.getToken();
+		String uriPath = request.getOptions().getUriPathString();
+		
+		GroupObservationsInfo groupObservationInfo = GroupObservationsInfo.getInstance();
+		
+		// Condition 1: Does the request have the Observe option with value 0?
+		if (request.getOptions().getObserve() == null || request.getOptions().getObserve() != 0) {
+			return false;
+		}
+		
+		// Condition 2: Is token value currently in pendingMulticastNotifTokens for the URI-path?
+		if (!groupObservationInfo.isTokenPendingProcess(token)) {
+			return false;
+		}
+		
+		// Condition 3 & 4: Check based on OSCORE protection
+		if (request.getOptions().hasOscore()) {
+			// OSCORE-protected request
+			// TODO: Implement OSCORE-specific checks:
+			// - Check if 'kid' in OSCORE option matches server's Sender ID AND source is own
+			// - OR check if 'kid' matches Deterministic Client AND request matches stored deterministic request
+			LOGGER.debug("OSCORE phantom request detection not yet fully implemented");
+			return false;
+		} else {
+			// NOT OSCORE-protected: source address and port must be the server's own
+			InetSocketAddress sourceAddress = request.getSourceContext().getPeerAddress();
+			InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
+			
+			boolean isOwnAddress = sourceAddress.equals(localAddress);
+			LOGGER.debug("Phantom request check: source={}, local={}, match={}", 
+					sourceAddress, localAddress, isOwnAddress);
+			return isOwnAddress;
+		}
+	}
+
+	@Override
+	public void receiveRequest(final Exchange exchange, final Request request) {
+		LOGGER.info("Handling request {} at ObserveLayer",request.getURI());
+		// Check if this is a phantom request coming back to the server
+		if (isPhantomRequest(exchange)) {
+			exchange.setPhantomRequest(true);
+			// Change the source addressing information to the multicast address
+			// where multicast notifications should be sent
+			InetSocketAddress multicastAddress = GroupObservationsInfo.getInstance().getMulticastAddress();
+			request.setSourceContext(new org.eclipse.californium.elements.UdpEndpointContext(multicastAddress));
+			
+			LOGGER.info("Recognized phantom request for {} with token {}. Changed source to multicast: {}",
+					request.getOptions().getUriPathString(), request.getToken(), multicastAddress);
+		}
+		
+		upper().receiveRequest(exchange, request);
 	}
 
 	@Override
@@ -136,6 +214,13 @@ public class ObserveLayer extends AbstractLayer {
 					response.addMessageObserver(new CleanupMessageObserver(exchange));
 				}
 			}
+		}
+		// For phantom exchanges (multicast observe notifications), ensure the response
+		// goes to the multicast address. The exchange.isPhantomRequest() flag was set
+		// during the initial phantom request setup.
+		if (response.isNotification() && exchange.isPhantomRequest()) {
+			LOGGER.info("Sending multicast notification to: {}", 
+					exchange.getRequest().getSourceContext().getPeerAddress());
 		}
 		lower().sendResponse(exchange, response);
 	}

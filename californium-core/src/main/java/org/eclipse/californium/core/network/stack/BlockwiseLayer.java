@@ -78,6 +78,8 @@ import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.coap.option.BlockOption;
 import org.eclipse.californium.core.coap.option.StandardOptionRegistry;
 import org.eclipse.californium.core.network.Exchange;
+import org.eclipse.californium.core.observe.GroupObservationsInfo;
+import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.core.server.resources.Resource;
 import org.eclipse.californium.elements.EndpointContext;
 import org.eclipse.californium.elements.EndpointContextMatcher;
@@ -729,8 +731,18 @@ public class BlockwiseLayer extends AbstractLayer {
 				responseToSend.getOptions().setBlock1(block1);
 			}
 		}
+    
+    if (exchange.isSuppressResponse()) {
+      // Use URI path (e.g., "/pasta/mult") not full URI (e.g., "coap://localhost/pasta/mult")
+      String uriPath = "/" + exchange.getRequest().getOptions().getUriPathString();
+      GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
+      // Only suppress during initial setup, not for subsequent notifications
+      exchange.setSuppressResponse(false);
+      return;
 
-		lower().sendResponse(exchange, responseToSend);
+      // Setup complete - this is a notification, let it through
+    }
+    lower().sendResponse(exchange, responseToSend);
 	}
 
 	/**
