@@ -733,15 +733,12 @@ public class BlockwiseLayer extends AbstractLayer {
 		}
     
     if (exchange.isSuppressResponse()) {
-      // Use URI path (e.g., "/pasta/mult") not full URI (e.g., "coap://localhost/pasta/mult")
-      String uriPath = "/" + exchange.getRequest().getOptions().getUriPathString();
-      GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
       // Only suppress during initial setup, not for subsequent notifications
       exchange.setSuppressResponse(false);
       return;
 
-      // Setup complete - this is a notification, let it through
     }
+    // Setup complete - this is a notification, let it through
     lower().sendResponse(exchange, responseToSend);
 	}
 

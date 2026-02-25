@@ -71,12 +71,6 @@ public class GroupObservationsInfo {
   public boolean isOngoingGroupObservation(String uri){
     return this.ongoingGroupObservations.containsKey(uri);
   }
-	/*
-	 *  This is relevant only when Deterministic Requests are supported.
-	 *  a map with key the URI path of the resource supporting group observation, 
-	 *  and with value a set of known deterministic phantom requests. 
-	 */
-	private Map<String, Set<byte[]>> detPhantomRequest;
 
   
 	private static GroupObservationsInfo instance;
@@ -88,7 +82,6 @@ public class GroupObservationsInfo {
 		this.pendingMulticastNotificationTokens = new ConcurrentHashMap<>();
 		this.ongoingGroupObservations = new ConcurrentHashMap<>();
 		this.pendingClients = new ConcurrentHashMap<>();
-		this.detPhantomRequest = new ConcurrentHashMap<>();
 		this.tokenGenerator = new RandomTokenGenerator(Configuration.createStandardWithoutFile());
     }
 

@@ -95,7 +95,7 @@ public class AHelloWorldServer extends CoapServer {
     GroupObservationsInfo.init();
     pastaResource.add(new HelloWorldResource());
     pastaResource.add(new ObservableResource());
-    pastaResource.add(new MulticastObservableResource("mult"));
+    pastaResource.add(new MulticastObservableResource("mult", true, this.getMessageDeliverer()));
     add(new MyIpResource(MyIpResource.RESOURCE_NAME, true));
 }
 

@@ -178,90 +178,33 @@ public class ServerMessageDeliverer implements MessageDeliverer {
 		Request request = exchange.getRequest();
 
 		if (CoAP.isObservable(request.getCode()) && request.getOptions().hasObserve() && resource.isObservable()
-				&& resource instanceof ObservableResource) {
+        && resource instanceof ObservableResource) {
 
-			if (request.isObserve()) {
-				GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
-				String resourceUri = resource.getURI();
-
-				if (groupObservationsInfo.isOngoingGroupObservation(resourceUri)) {
-					// Group observation already established - send informative response to client
-					LOGGER.debug("Group observation already exists for {}, sending informative response", resourceUri);
-					// TODO_A: send 5.03 informative response with tp_info, ph_req, last_notif
-
-				} else if (((ObservableResource) resource).getObserverCount() >= 0) {
-					LOGGER.debug("Group observation for {} starting", resourceUri);
-
-					// trigger phantom request setup
-					// Check if setup is already in progress 
-					synchronized (groupObservationsInfo) {
-						// If setup already in progress
-						if (groupObservationsInfo.isGroupObservationSetupInProgress(resourceUri)) {
-							// Phantom requests should pass through to establish observe relation
-							if (exchange.isPhantomRequest()) {
-								LOGGER.debug("Phantom request for {} - allowing delivery during setup", resourceUri);
-								// Don't return - let the phantom be delivered to the resource
-							} else {
-								// Regular client during setup - add as pending client for informative response
-								groupObservationsInfo.addPendingClient(resourceUri, exchange);
-								LOGGER.debug("Group observation setup in progress for {}, added client as pending", resourceUri);
-								return;
-							}
-						} else {
-							// We are the first thread - mark setup as in progress
-							groupObservationsInfo.setGroupObservationSetupInProgress(resourceUri, true);
-						}
-					}
-
-					// If this is a phantom request, it should just be delivered to the resource
-					// (don't create another phantom or add to pending)
-					if (exchange.isPhantomRequest()) {
-						// Phantom request - add observe relation and continue to resource
-						LOGGER.debug("Phantom request for {} - adding observe relation and continuing to resource", resourceUri);
-						observeManager.addObserveRelation(exchange, (ObservableResource) resource);
-						request.setProtectFromOffload();
-            exchange.setSuppressResponse(true);
-            
-					} else {
-						// Step 5: Allocate multicast token T
-						Token multicastToken = groupObservationsInfo.allocateMulticastToken(resourceUri);
-						LOGGER.debug("Allocated multicast token {} for group observation on {}", multicastToken, resourceUri);
-
-						// Step 6-7: Create and deliver phantom request
-						// Note: First client is NOT added to pending clients - it will continue
-						// to handleGET after phantom completes and receive informative response there
-						final Exchange phantomExchange = createPhantomExchange(resource, multicastToken, exchange);					
-						LOGGER.debug("Delivering phantom request for {} with token {}", resourceUri, multicastToken);
-						
-						// Deliver phantom inline (synchronously) so the group observation is established
-						// before the first client's request continues to handleGET.
-						// The phantom's observe relation will be established during response handling
-						// via ObserveRelation.onResponse(), not here.
-						deliverRequest(phantomExchange);
-						
-						// After phantom is delivered, the group observation is established.
-						// Now continue to let the first client's request reach handleGET,
-						// where it will see the group observation exists and send informative response.
-					}
-
-				} else {
-					// Regular unicast observe (no group observation)
-					InetSocketAddress source = request.getSourceContext().getPeerAddress();
-					LOGGER.debug("initiating an observe relation between {} and resource {}, {}", StringUtil.toLog(source),
-							resource.getURI(), exchange);
-					observeManager.addObserveRelation(exchange, (ObservableResource) resource);
-					request.setProtectFromOffload();
-				}
-        
-			} else if (request.isObserveCancel()) {
-				// Observe defines 1 for canceling
-				InetSocketAddress source = request.getSourceContext().getPeerAddress();
-				LOGGER.debug("cancel an observe relation between {} and resource {}, {}", StringUtil.toLog(source),
-						resource.getURI(), exchange);
-				observeManager.cancelObserveRelation(exchange);
-			}
-		}
-	}
+    if (request.isObserve()) {
+      if (exchange.isPhantomRequest()) {
+        // Phantom request - add observe relation and continue to resource
+        LOGGER.debug("Phantom request for {} - adding observe relation and continuing to resource", resource.getURI());
+        observeManager.addObserveRelation(exchange, (ObservableResource) resource);
+        request.setProtectFromOffload();
+        exchange.setSuppressResponse(true);
+      }else{
+        // Regular unicast observe (no group observation)
+        InetSocketAddress source = request.getSourceContext().getPeerAddress();
+        LOGGER.debug("initiating an observe relation between {} and resource {}, {}", StringUtil.toLog(source),
+            resource.getURI(), exchange);
+        observeManager.addObserveRelation(exchange, (ObservableResource) resource);
+        request.setProtectFromOffload();
+      }
+    }else if (request.isObserveCancel()) {
+      // Observe defines 1 for canceling
+      InetSocketAddress source = request.getSourceContext().getPeerAddress();
+      LOGGER.debug("cancel an observe relation between {} and resource {}, {}", StringUtil.toLog(source),
+          resource.getURI(), exchange);
+      observeManager.cancelObserveRelation(exchange);
+    }
+    }
+  }
+	
 
 	/**
 	 * Return root resource.
@@ -366,62 +309,5 @@ public class ServerMessageDeliverer implements MessageDeliverer {
 	 */
 	protected boolean preDeliverResponse(final Exchange exchange, final Response response) {
 		return false;
-	}
-
-	/**
-	 * Creates a phantom request and exchange for multicast group observation.
-	 * <p>
-	 * The phantom request is a self-generated observe request that establishes
-	 * the group observation. Its source context is set to the multicast group
-	 * address so that responses (notifications) will be sent to the multicast group.
-	 * 
-	 * @param resource the resource to observe
-	 * @param multicastToken the token T allocated for multicast notifications
-	 * @param triggeringExchange the original client exchange that triggered this setup
-	 * @return the phantom exchange ready to be delivered
-	 */
-	protected Exchange createPhantomExchange(Resource resource, Token multicastToken, Exchange triggeringExchange) {
-		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
-		
-		// Step 6: Build the phantom GET request
-		Request phantomRequest = Request.newGet();
-		
-		// Set the multicast token T
-		phantomRequest.setToken(multicastToken);
-		
-		// Set Observe=0 (register for observation)
-		phantomRequest.setObserve();
-		
-		// Set URI path to the resource
-		phantomRequest.getOptions().setUriPath(resource.getURI());
-		
-		// Set message type to NON (multicast requires non-confirmable)
-		phantomRequest.setType(Type.NON);
-		
-		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
-		
-		// Set source context to MULTICAST ADDRESS 
-		// When notifications are sent, the response destination is set from request source,
-		// so setting multicast here means notifications go to the multicast group
-		InetSocketAddress multicastAddress = groupInfo.getMulticastAddress();
-		phantomRequest.setSourceContext(new AddressEndpointContext(multicastAddress));
-		LOGGER.debug("Phantom request source set to multicast address: {}", multicastAddress);
-
-		// Step 7: Create the Exchange for server-side processing
-		// Use Origin.REMOTE because the server should treat this as an incoming request
-		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
-		
-		// Mark exchange as phantom request
-		phantomExchange.setPhantomRequest(true);
-		
-		// Set endpoint from triggering exchange if available
-		if (triggeringExchange.getEndpoint() != null) {
-			phantomExchange.setEndpoint(triggeringExchange.getEndpoint());
-		}
-		
-		LOGGER.debug("Created phantom exchange for resource {} with multicast token {}", 
-				resource.getURI(), multicastToken);
-		
-		return phantomExchange;
 	}
 }
