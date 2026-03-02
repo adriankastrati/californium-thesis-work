@@ -197,6 +197,14 @@ public class Request extends Message {
 
 	private boolean ready;
 
+  private boolean shouldSend = true;
+
+  public boolean getShouldSend(){
+    return shouldSend;
+  }
+  public void setShouldSend(boolean b){
+    shouldSend = b;
+  }
 	/**
 	 * Request's scheme.
 	 * 

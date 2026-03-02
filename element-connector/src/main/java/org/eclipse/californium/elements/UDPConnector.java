@@ -42,6 +42,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
+import java.net.NetworkInterface;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -60,6 +61,7 @@ import org.eclipse.californium.elements.exception.EndpointMismatchException;
 import org.eclipse.californium.elements.util.Bytes;
 import org.eclipse.californium.elements.util.ClockUtil;
 import org.eclipse.californium.elements.util.NamedThreadFactory;
+import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.elements.util.NetworkStageRunnable;
 import org.eclipse.californium.elements.util.SocketThreadFactory;
 import org.eclipse.californium.elements.util.StringUtil;
@@ -499,13 +501,37 @@ public class UDPConnector implements Connector {
 				try {
 					raw.onContextEstablished(connectionContext);
 					if (datagram.getAddress().isMulticastAddress()) {
-          try (MulticastSocket multicastSocket = new MulticastSocket()) {
-            multicastSocket.send(datagram);
-          }
-        } else {
-          currentSocket.send(datagram);
-        }	
-          raw.onSent();
+						LOGGER.debug("=== MULTICAST SEND DEBUG ===");
+						LOGGER.debug("  Destination: {}:{}", datagram.getAddress().getHostAddress(), datagram.getPort());
+						LOGGER.debug("  Datagram length: {} bytes", datagram.getLength());
+						LOGGER.debug("  Datagram data (first 32 bytes): {}", 
+							StringUtil.byteArray2Hex(Arrays.copyOf(datagram.getData(), Math.min(32, datagram.getLength()))));
+						LOGGER.debug("  isMulticastAddress: {}", datagram.getAddress().isMulticastAddress());
+						LOGGER.debug("  Current socket local addr: {}", currentSocket.getLocalSocketAddress());
+						LOGGER.debug("  Current socket bound: {}", currentSocket.isBound());
+						
+						try (MulticastSocket multicastSocket = new MulticastSocket()) {
+							// Get the first IPv4 multicast interface
+							NetworkInterface ni = NetworkInterfacesUtil.getMulticastInterface();
+							if (ni != null) {
+								multicastSocket.setNetworkInterface(ni);
+								LOGGER.debug("  Set network interface to: {}", ni.getDisplayName());
+							}
+							// Disable loopback (true = disable, confusing API)
+							multicastSocket.setLoopbackMode(true);
+							
+							LOGGER.debug("  MulticastSocket created, local addr: {}", multicastSocket.getLocalSocketAddress());
+							LOGGER.debug("  MulticastSocket interface: {}", multicastSocket.getNetworkInterface());
+							LOGGER.debug("  MulticastSocket loopback mode: {} (true=disabled)", multicastSocket.getLoopbackMode());
+							LOGGER.debug("  MulticastSocket TTL: {}", multicastSocket.getTimeToLive());
+							multicastSocket.send(datagram);
+							LOGGER.debug("  MulticastSocket.send() completed");
+						}
+						LOGGER.debug("=== END MULTICAST SEND DEBUG ===");
+					} else {
+						currentSocket.send(datagram);
+					}
+					raw.onSent();
 				} catch (IOException ex) {
 					raw.onError(ex);
 					LOGGER.debug("UDPConnector Error {} for message to address {} with payload {}",ex.getMessage(),datagram.getAddress(),datagram.getData());

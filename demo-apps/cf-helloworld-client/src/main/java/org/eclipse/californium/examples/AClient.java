@@ -16,6 +16,11 @@
 package org.eclipse.californium.examples;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+
+import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.exception.ConnectorException;
 
 
@@ -34,7 +39,7 @@ public class AClient {
 		String uri_obs = uri+"obs";
 		
 		String uriMult = uri+"mult";
-		int rounds = 4;
+		int rounds = 1;
 
 		
 		switch (args[0]) {
@@ -62,13 +67,14 @@ public class AClient {
 			case "put-mult":		
 				content = Integer.toString((int)(Math.random() * 50 + 1));
 				PUTClient.main(uriMult, content);
-					
 				break;
-				
-			case "mult":
-				System.out.println("MULTI");
-				MulticastObserveClient.main(uriMult,1000);
-				break;				
+
+      case "mult":
+        System.out.println("MULTI");
+        MulticastObserveClient.main(uriMult,1000);
+        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
+        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
+        break;
 				
 			case "mix":
 				System.out.println("-----------[GET]-------------");

@@ -146,7 +146,7 @@ public class MulticastObservableResource extends CoapResource {
     
     for (Exchange clientExchange : pendingClients) {
       Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
-      response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_CBOR);
+      response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
       
       byte[] payload = groupInfo.getGroupObservationInfo(uriPath).toCbor();
       response.setPayload(payload);
@@ -334,7 +334,9 @@ public class MulticastObservableResource extends CoapResource {
 						// Step 6-7: Create and deliver phantom request
 						// Note: First client is NOT added to pending clients - it will continue
 						// to handleGET after phantom completes and receive informative response there
-						final Exchange phantomExchange = createPhantomExchange(this, multicastToken, exchange.advanced());					
+            final Exchange phantomExchange = groupObservationsInfo.createPhantomExchange(this, multicastToken, exchange.advanced());					
+						
+            // final Exchange phantomExchange = createPhantomExchange(this, multicastToken, exchange.advanced());					
 						
 						// Deliver phantom inline (synchronously) so the group observation is established
 						// before the first client's request continues to handleGET.

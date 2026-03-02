@@ -51,9 +51,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Test server using {@link UdpMulticastConnector}.
  */
-public class MulticastTestServer {
+public class MulticastGroup {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(MulticastTestServer.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(MulticastGroup.class);
 	private static final boolean LOOPBACK = false;
 	private static final File CONFIG_FILE = new File("Californium3MulticastServer.properties");
 	private static final String CONFIG_HEADER = "Californium CoAP Properties file for multicast server";
@@ -70,24 +70,13 @@ public class MulticastTestServer {
 		config.set(CoapConfig.LEISURE, 2, TimeUnit.SECONDS);
 	};
 
-	public static void main(String[] args) throws UnknownHostException {
+	public static void main() throws UnknownHostException {
 		Configuration config = Configuration.createWithFile(CONFIG_FILE, CONFIG_HEADER, DEFAULTS);
 		Configuration.setStandard(config);
 		int unicastPort = config.get(CoapConfig.COAP_PORT);
-		int multicastPort = unicastPort;
-		switch (args.length) {
-		default:
-			System.out.println("usage: MulticastTestServer [unicast-port [multicast-port]]");
-		case 2:
-			multicastPort = Integer.parseInt(args[1]);
-		case 1:
-			unicastPort = Integer.parseInt(args[0]);
-		case 0:
-		}
+	
 		CoapServer server = new CoapServer(config);
-		createEndpoints(server, unicastPort, multicastPort, config);
-		server.add(new HelloWorldResource());
-		server.add(new MyIpResource(MyIpResource.RESOURCE_NAME, true));
+		createEndpoints(server, 0, 61616, config);
 		server.start();
 	}
 
@@ -106,32 +95,6 @@ public class MulticastTestServer {
 		LOGGER.info("Multicast Network Interface: {}", networkInterface.getDisplayName());
 
 		UdpMulticastConnector.Builder builder = new UdpMulticastConnector.Builder();
-
-		if (NetworkInterfacesUtil.isAnyIpv6()) {
-			Inet6Address ipv6 = NetworkInterfacesUtil.getMulticastInterfaceIpv6();
-			LOGGER.info("Multicast: IPv6 Network Address: {}", StringUtil.toString(ipv6));
-			UDPConnector udpConnector = new UDPConnector(new InetSocketAddress(ipv6, unicastPort), config);
-			udpConnector.setReuseAddress(true);
-			CoapEndpoint coapEndpoint = new CoapEndpoint.Builder().setConfiguration(config).setConnector(udpConnector)
-					.build();
-
-			builder = new UdpMulticastConnector.Builder().setLocalAddress(CoAP.MULTICAST_IPV6_SITELOCAL, multicastPort)
-					.addMulticastGroup(CoAP.MULTICAST_IPV6_SITELOCAL, networkInterface).setConfiguration(config);
-			createReceiver(builder, udpConnector);
-
-			/*
-			 * https://bugs.openjdk.java.net/browse/JDK-8210493 link-local
-			 * multicast is broken
-			 */
-			builder = new UdpMulticastConnector.Builder().setLocalAddress(CoAP.MULTICAST_IPV6_LINKLOCAL, multicastPort)
-					.addMulticastGroup(CoAP.MULTICAST_IPV6_LINKLOCAL, networkInterface).setConfiguration(config);
-			createReceiver(builder, udpConnector);
-
-			server.addEndpoint(coapEndpoint);
-      
-      
-      LOGGER.info("IPv6 - multicast");
-		}
 
 		if (NetworkInterfacesUtil.isAnyIpv4()) {
 			Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
@@ -202,31 +165,6 @@ public class MulticastTestServer {
 		}
 		if (multicastConnector != null && connector != null) {
 			connector.addMulticastReceiver(multicastConnector);
-		}
-	}
-
-	private static class HelloWorldResource extends CoapResource {
-
-		private int id;
-
-		private HelloWorldResource() {
-			// set resource identifier
-			super("helloWorld");
-			// set display name
-			getAttributes().setTitle("Hello-World Resource");
-			id = new Random(System.currentTimeMillis()).nextInt(100);
-			System.out.println("coap server: " + id);
-		}
-
-		@Override
-		public void handleGET(CoapExchange exchange) {
-			// respond to the request
-			if (exchange.isMulticastRequest()) {
-				Request request = exchange.advanced().getRequest();
-				exchange.respond("Hello Multicast-World! " + id + "\nReceived via " + StringUtil.toDisplayString(request.getLocalAddress()));
-			} else {
-				exchange.respond("Hello Unicast-World! " + id);
-			}
 		}
 	}
 }

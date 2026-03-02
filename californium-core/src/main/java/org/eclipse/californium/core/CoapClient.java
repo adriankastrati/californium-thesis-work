@@ -1531,26 +1531,72 @@ public class CoapClient {
 	 *             request
 	 */
 	public CoapObserveRelation observe(Request request, CoapHandler handler) {
-		if (request.getOptions().hasObserve()) {
-			assignClientUriIfEmpty(request);
-			Endpoint outEndpoint = getEffectiveEndpoint(request);
-			CoapObserveRelation relation = new CoapObserveRelation(request, outEndpoint);
-			// add message observer to get the response.
-			ObserveMessageObserverImpl messageObserver = new ObserveMessageObserverImpl(handler, request.isMulticast(),
-					relation);
-			request.addMessageObserver(messageObserver);
-			// add notification listener to all notification
-			BiConsumer<Request, Response>  notificationListener = new Adapter(messageObserver, relation);
-			outEndpoint.addNotificationListener(notificationListener);
-			// relation should remove this listener when the request is
-			// cancelled
-			relation.setNotificationListener(notificationListener);
-			send(request, outEndpoint);
-			return relation;
-		} else {
-			throw new IllegalArgumentException("please make sure that the request has observe option set.");
-		}
-	}
+
+    
+    if (request == null) {
+      LOGGER.info("Request is NULL");
+      throw new IllegalArgumentException("Request must not be null");
+    }
+    LOGGER.info("=== observe() called ===");
+    LOGGER.info("{}", request);
+
+    LOGGER.info("Request URI: {}", request.getURI());
+    LOGGER.info("Request token: {}", request.getTokenString());
+    LOGGER.info("Has Observe option: {}", request.getOptions().hasObserve());
+    LOGGER.info("Is multicast flag: {}", request.isMulticast());
+    LOGGER.info("shouldSend flag: {}", request.getShouldSend());
+    LOGGER.info("Destination context: {}", request.getDestinationContext());
+    LOGGER.info("Local address: {}", request.getLocalAddress());
+    LOGGER.info("Options: {}", request.getOptions());
+
+    if (request.getOptions().hasObserve()) {
+
+        LOGGER.info("Observe option present.");
+
+        assignClientUriIfEmpty(request);
+        LOGGER.info("After assignClientUriIfEmpty(): {}", request.getURI());
+
+        Endpoint outEndpoint = getEffectiveEndpoint(request);
+        LOGGER.info("Effective endpoint: {}", outEndpoint);
+
+        if (outEndpoint == null) {
+            LOGGER.info("Effective endpoint is NULL!");
+        } else {
+            LOGGER.info("Endpoint address: {}", outEndpoint.getAddress());
+        }
+
+        CoapObserveRelation relation = new CoapObserveRelation(request, outEndpoint);
+        LOGGER.info("Created CoapObserveRelation: {}", relation);
+
+        ObserveMessageObserverImpl messageObserver =
+                new ObserveMessageObserverImpl(handler, request.isMulticast(), relation);
+
+        LOGGER.info("Created ObserveMessageObserverImpl. Multicast? {}", request.isMulticast());
+
+        request.addMessageObserver(messageObserver);
+        LOGGER.info("Added message observer to request.");
+
+        BiConsumer<Request, Response> notificationListener =
+                new Adapter(messageObserver, relation);
+
+        outEndpoint.addNotificationListener(notificationListener);
+        LOGGER.info("Added notification listener to endpoint.");
+
+        relation.setNotificationListener(notificationListener);
+        LOGGER.info("Attached notification listener to relation.");
+
+        LOGGER.info("About to call send(request, endpoint)...");
+        send(request, outEndpoint);
+        LOGGER.info("send() returned.");
+
+        return relation;
+
+    } else {
+        LOGGER.info("Observe option NOT set. Throwing exception.");
+        throw new IllegalArgumentException(
+                "please make sure that the request has observe option set.");
+    }
+}
 
 	/**
 	 * Sends the specified request over the endpoint of the client if one is

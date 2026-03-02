@@ -463,6 +463,8 @@ public class BlockwiseLayer extends AbstractLayer {
 		}
 
 		exchange.setCurrentRequest(requestToSend);
+		// Let request through even if shouldSend=false - registration happens in lower layers
+		// The actual send will be skipped in OutboxImpl
 		lower().sendRequest(exchange, requestToSend);
 	}
 

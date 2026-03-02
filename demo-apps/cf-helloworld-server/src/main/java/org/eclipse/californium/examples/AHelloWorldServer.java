@@ -35,7 +35,10 @@ import org.eclipse.californium.core.server.resources.ResourceObserver;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.TcpConfig;
 import org.eclipse.californium.elements.config.UdpConfig;
+import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.core.MulticastObservableResource;
+
+import java.net.Inet4Address;
 
 
 public class AHelloWorldServer extends CoapServer {
@@ -72,6 +75,7 @@ public class AHelloWorldServer extends CoapServer {
 		int port = Configuration.getStandard().get(CoapConfig.COAP_PORT);
 		Configuration config = Configuration.getStandard();
 
+		// Loopback endpoint for local unicast
 		InetAddress loopbackAddr = InetAddress.getLoopbackAddress();
 		InetSocketAddress loopbackSocket = new InetSocketAddress(loopbackAddr, port);
 		CoapEndpoint.Builder loopbackBuilder = new CoapEndpoint.Builder();
@@ -79,6 +83,16 @@ public class AHelloWorldServer extends CoapServer {
 		loopbackBuilder.setConfiguration(config);
 		addEndpoint(loopbackBuilder.build());
 
+		// Physical interface endpoint for multicast to work
+		Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
+		if (ipv4 != null) {
+			InetSocketAddress physicalSocket = new InetSocketAddress(ipv4, port);
+			CoapEndpoint.Builder physicalBuilder = new CoapEndpoint.Builder();
+			physicalBuilder.setInetSocketAddress(physicalSocket);
+			physicalBuilder.setConfiguration(config);
+			addEndpoint(physicalBuilder.build());
+			System.out.println("Added physical interface endpoint: " + physicalSocket);
+		}
 	}
 
 	/*

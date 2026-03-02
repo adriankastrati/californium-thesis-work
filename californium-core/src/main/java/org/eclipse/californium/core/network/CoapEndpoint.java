@@ -943,7 +943,12 @@ public class CoapEndpoint implements Endpoint, Executor {
 				// functionality in the Matcher
 				exchange.executeComplete();
 
+			} else if (!request.getShouldSend()) {
+				// Phantom request for multicast observe - registered but not sent
+				LOGGER.debug("Phantom request registered but not sent: {}", request);
+				System.out.println("[CoapEndpoint] PHANTOM REQUEST - NOT sending to network: " + request.getTokenString());
 			} else {
+				System.out.println("[CoapEndpoint] ACTUALLY sending request to network: " + request.getTokenString());
 				if (exchange.getFailedTransmissionCount() == 0) {
 					exchange.startTransmissionRtt();
 				}
@@ -1105,8 +1110,17 @@ public class CoapEndpoint implements Endpoint, Executor {
 					return;
 				} else if (CoAP.isResponse(msg.getRawCode())) {
 					if (raw.isMulticast()) {
-						LOGGER.debug("{}multicast-receiver silently ignoring responses from {}", tag,
+						// Check if this multicast response matches an existing observation
+						// (RFC observe-multicast-notifications: clients receive notifications via multicast)
+						Response response = (Response) msg;
+						if (response.getToken() != null && observationStore.get(response.getToken()) != null) {
+							LOGGER.debug("{}multicast-receiver processing response with observed token {} from {}", 
+								tag, response.getToken(), raw.getEndpointContext());
+							receiveResponse(response);
+						} else {
+							LOGGER.debug("{}multicast-receiver silently ignoring responses from {}", tag,
 								raw.getEndpointContext());
+						}
 					} else {
 						receiveResponse((Response) msg);
 					}

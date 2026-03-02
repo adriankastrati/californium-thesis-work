@@ -11,11 +11,16 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.californium.core.coap.CoAP;
+import org.eclipse.californium.core.coap.CoAP.Type;
+import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.network.Exchange;
+import org.eclipse.californium.core.network.Exchange.Origin;
 import org.eclipse.californium.core.network.RandomTokenGenerator;
 import org.eclipse.californium.core.network.TokenGenerator;
 import org.eclipse.californium.core.network.TokenGenerator.Scope;
+import org.eclipse.californium.core.server.resources.Resource;
+import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
 
 /**
@@ -256,5 +261,58 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 		}
 		return false;
 	}
-	
+
+  	/**
+	 * Creates a phantom request and exchange for multicast group observation.
+	 * <p>
+	 * The phantom request is a self-generated observe request that establishes
+	 * the group observation. Its source context is set to the multicast group
+	 * address so that responses (notifications) will be sent to the multicast group.
+	 * 
+	 * @param resource the resource to observe
+	 * @param multicastToken the token T allocated for multicast notifications
+	 * @param triggeringExchange the original client exchange that triggered this setup
+	 * @return the phantom exchange ready to be delivered
+	 */
+	public Exchange createPhantomExchange(Resource resource, Token multicastToken, Exchange triggeringExchange) {
+		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
+		
+		// Step 6: Build the phantom GET request
+		Request phantomRequest = Request.newGet();
+		
+		// Set the multicast token T
+		phantomRequest.setToken(multicastToken);
+		
+		// Set Observe=0 (register for observation)
+		phantomRequest.setObserve();
+		
+		// Set URI path to the resource
+		phantomRequest.getOptions().setUriPath(resource.getURI());
+		
+		// Set message type to NON (multicast requires non-confirmable)
+		phantomRequest.setType(Type.NON);
+		
+		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
+		
+		// Set source context to MULTICAST ADDRESS 
+		// When notifications are sent, the response destination is set from request source,
+		// so setting multicast here means notifications go to the multicast group
+		InetSocketAddress multicastAddress = groupInfo.getMulticastAddress();
+		phantomRequest.setSourceContext(new AddressEndpointContext(multicastAddress));
+
+
+		// Step 7: Create the Exchange for server-side processing
+		// Use Origin.REMOTE because the server should treat this as an incoming request
+		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
+
+		// Mark exchange as phantom request
+		phantomExchange.setPhantomRequest(true);
+		
+		// Set endpoint from triggering exchange if available
+		if (triggeringExchange.getEndpoint() != null) {
+			phantomExchange.setEndpoint(triggeringExchange.getEndpoint());
+		}
+
+		return phantomExchange;
+	}
 }
