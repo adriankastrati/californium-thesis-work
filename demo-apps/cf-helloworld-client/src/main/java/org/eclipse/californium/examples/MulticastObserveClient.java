@@ -159,8 +159,6 @@ public class MulticastObserveClient {
       throw new IOException("No IPv4 address found on multicast interface " + ni.getDisplayName());
     }
 
-    // Use ephemeral port (0) for UDP connector - it's only a parent for the multicast receiver
-    // The multicast receiver itself binds to the group's port
     InetSocketAddress bind = new InetSocketAddress(ipv4, 0);
     udpConnector = new UDPConnector(bind, config);
     
@@ -170,19 +168,17 @@ public class MulticastObserveClient {
     UdpMulticastConnector.Builder mcBuilder = new UdpMulticastConnector.Builder()
     .setConfiguration(config)
     .setMulticastReceiver(true)
-    .setLocalAddress(groupAddr, port)  // Must bind to multicast address to receive!
+    .setLocalAddress(groupAddr, port) 
     .addMulticastGroup(groupAddr, ni);
     
     multicastReceiver = mcBuilder.build();
-    multicastReceiver.setLoopbackMode(false);
 
-    // CRITICAL: Start multicast receiver FIRST (before adding to UDP connector)
-    // This is the pattern used in MulticastTestServer.java createReceiver()
+
     try {
       multicastReceiver.start();
       LOGGER.info("Multicast receiver started on {} port {}", groupAddr, port);
     } catch (java.net.BindException ex) {
-      // binding to multicast may fail on some platforms - retry without multicast bind
+
       LOGGER.warn("Bind to multicast address failed, retrying with port only: {}", ex.getMessage());
       mcBuilder = new UdpMulticastConnector.Builder()
           .setConfiguration(config)
@@ -190,11 +186,12 @@ public class MulticastObserveClient {
           .setLocalPort(port)
           .addMulticastGroup(groupAddr, ni);
       multicastReceiver = mcBuilder.build();
-      multicastReceiver.setLoopbackMode(false);
+
+      multicastReceiver.setLoopbackMode(true);
       multicastReceiver.start();
     }
 
-    // Add to UDP connector AFTER starting multicast receiver
+
     udpConnector.addMulticastReceiver(multicastReceiver);
 
     endpoint = new CoapEndpoint.Builder()
@@ -202,10 +199,10 @@ public class MulticastObserveClient {
         .setConnector(udpConnector)
         .build();
 
-    // Starting endpoint calls setRawDataReceiver() which propagates to multicast receiver
+
     endpoint.start();
 
-    // Add interceptor to see ALL incoming messages on this endpoint
+
     endpoint.addInterceptor(new MessageInterceptor() {
       @Override
       public void sendRequest(Request request) {

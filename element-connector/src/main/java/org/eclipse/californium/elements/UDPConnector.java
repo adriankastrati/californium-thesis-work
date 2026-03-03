@@ -517,12 +517,9 @@ public class UDPConnector implements Connector {
 								multicastSocket.setNetworkInterface(ni);
 								LOGGER.debug("  Set network interface to: {}", ni.getDisplayName());
 							}
-							// Disable loopback (true = disable, confusing API)
-							multicastSocket.setLoopbackMode(true);
 							
 							LOGGER.debug("  MulticastSocket created, local addr: {}", multicastSocket.getLocalSocketAddress());
 							LOGGER.debug("  MulticastSocket interface: {}", multicastSocket.getNetworkInterface());
-							LOGGER.debug("  MulticastSocket loopback mode: {} (true=disabled)", multicastSocket.getLoopbackMode());
 							LOGGER.debug("  MulticastSocket TTL: {}", multicastSocket.getTimeToLive());
 							multicastSocket.send(datagram);
 							LOGGER.debug("  MulticastSocket.send() completed");
