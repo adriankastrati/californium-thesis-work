@@ -264,7 +264,7 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 
   	/**
 	 * Creates a phantom request and exchange for multicast group observation.
-	 * <p>
+	 * 
 	 * The phantom request is a self-generated observe request that establishes
 	 * the group observation. Its source context is set to the multicast group
 	 * address so that responses (notifications) will be sent to the multicast group.
@@ -294,7 +294,7 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 		
 		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
 		
-		// Set source context to MULTICAST ADDRESS 
+		// Set source context to multicast address
 		// When notifications are sent, the response destination is set from request source,
 		// so setting multicast here means notifications go to the multicast group
 		InetSocketAddress multicastAddress = groupInfo.getMulticastAddress();
@@ -302,7 +302,7 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 
 
 		// Step 7: Create the Exchange for server-side processing
-		// Use Origin.REMOTE because the server should treat this as an incoming request
+		// Use Origin.REMOTE because the server should see this as an incoming request
 		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
 
 		// Mark exchange as phantom request

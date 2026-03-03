@@ -946,9 +946,17 @@ public class CoapEndpoint implements Endpoint, Executor {
 			} else if (!request.getShouldSend()) {
 				// Phantom request for multicast observe - registered but not sent
 				LOGGER.debug("Phantom request registered but not sent: {}", request);
-				System.out.println("[CoapEndpoint] PHANTOM REQUEST - NOT sending to network: " + request.getTokenString());
+				// Set the endpoint context so UdpMatcher can route incoming multicast responses
+				EndpointContext context = request.getDestinationContext();
+				if (context != null) {
+					exchange.setEndpointContext(context);
+					LOGGER.debug("Set endpoint context for phantom request from destination: {}", context);
+				}
+				// For phantom requests, still start RTT tracking so that response RTT calculation works
+				if (exchange.getFailedTransmissionCount() == 0) {
+					exchange.startTransmissionRtt();
+				}
 			} else {
-				System.out.println("[CoapEndpoint] ACTUALLY sending request to network: " + request.getTokenString());
 				if (exchange.getFailedTransmissionCount() == 0) {
 					exchange.startTransmissionRtt();
 				}

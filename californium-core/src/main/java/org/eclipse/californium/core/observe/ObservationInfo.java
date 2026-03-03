@@ -33,7 +33,7 @@ public class ObservationInfo {
     // optional - byte serialization of phantom request
     private byte[] phReq;
 
-    // optional - resposne of last notification
+    // optional - response of last notification
     private Response lastNotif;
 
     // optional - seconds until next notification
@@ -49,27 +49,53 @@ public class ObservationInfo {
         this.tpInfo = tpInfo;
     }
 
-     public ObservationInfo(InetSocketAddress serverAddress, InetSocketAddress multicastAddress, Token token) {
+    public ObservationInfo(InetSocketAddress serverAddress, InetSocketAddress multicastAddress, Token token) {
         this.tpInfo = new TpInfo(serverAddress,multicastAddress,token);
     }
 
-    public Token getToken(){
-      return this.tpInfo.token;
+    public Token getToken() {
+        return this.tpInfo.token;
     }
-    public TpInfo getTpInfo() { return tpInfo; }
-    public void setTpInfo(TpInfo tpInfo) { this.tpInfo = tpInfo; }
 
-    public byte[] getPhReq() { return phReq; }
-    public void setPhReq(byte[] phReq) { this.phReq = phReq; }
+    public TpInfo getTpInfo() {
+        return tpInfo;
+    }
 
-    public Response getLastNotif() { return lastNotif; }
-    public void setLastNotif(Response lastNotif) { this.lastNotif = lastNotif; }
+    public void setTpInfo(TpInfo tpInfo) {
+        this.tpInfo = tpInfo;
+    }
 
-    public Long getNextNotBefore() { return nextNotBefore; }
-    public void setNextNotBefore(Long nextNotBefore) { this.nextNotBefore = nextNotBefore; }
+    public byte[] getPhReq() {
+        return phReq;
+    }
 
-    public Long getEnding() { return ending; }
-    public void setEnding(Long ending) { this.ending = ending; }
+    public void setPhReq(byte[] phReq) {
+        this.phReq = phReq;
+    }
+
+    public Response getLastNotif() {
+        return lastNotif;
+    }
+
+    public void setLastNotif(Response lastNotif) {
+        this.lastNotif = lastNotif;
+    }
+
+    public Long getNextNotBefore() {
+        return nextNotBefore;
+    }
+
+    public void setNextNotBefore(Long nextNotBefore) {
+        this.nextNotBefore = nextNotBefore;
+    }
+
+    public Long getEnding() {
+        return ending;
+    }
+
+    public void setEnding(Long ending) {
+        this.ending = ending;
+    }
 
     /**
      * Serializes this ObservationInfo to CBOR bytes.
@@ -90,7 +116,7 @@ public class ObservationInfo {
         
         // 0 => tp_info (REQUIRED)
         if (tpInfo == null) {
-          throw new Error("missing tp_info");
+            throw new IllegalStateException("missing tp_info");
         }
         map.set(0, tpInfo.toCbor());
         
@@ -128,7 +154,7 @@ public class ObservationInfo {
         return fromCbor(map);
     }
 
-      /**
+    /**
      * Parse ObservationInfo from a CBOR map object.
      */
     public static ObservationInfo fromCbor(CBORObject map) {
@@ -255,14 +281,29 @@ public class ObservationInfo {
             this.token = token;
         }
 
-        public Cri getTpiServer() { return tpiServer; }
-        public void setTpiServer(Cri tpiServer) { this.tpiServer = tpiServer; }
+        public Cri getTpiServer() {
+            return tpiServer;
+        }
 
-        public Cri getTpiClient() { return tpiClient; }
-        public void setTpiClient(Cri tpiClient) { this.tpiClient = tpiClient; }
+        public void setTpiServer(Cri tpiServer) {
+            this.tpiServer = tpiServer;
+        }
 
-        public Token getToken() { return token; }
-        public void setToken(Token token) { this.token = token; }
+        public Cri getTpiClient() {
+            return tpiClient;
+        }
+
+        public void setTpiClient(Cri tpiClient) {
+            this.tpiClient = tpiClient;
+        }
+
+        public Token getToken() {
+            return token;
+        }
+
+        public void setToken(Token token) {
+            this.token = token;
+        }
 
         /**
          * Serializes tp_info to CBOR array.
@@ -351,14 +392,29 @@ public class ObservationInfo {
             this.port = port;
         }
 
-        public int getSchemeId() { return schemeId; }
-        public void setSchemeId(int schemeId) { this.schemeId = schemeId; }
+        public int getSchemeId() {
+            return schemeId;
+        }
 
-        public InetAddress getHost() { return host; }
-        public void setHost(InetAddress host) { this.host = host; }
+        public void setSchemeId(int schemeId) {
+            this.schemeId = schemeId;
+        }
 
-        public int getPort() { return port; }
-        public void setPort(int port) { this.port = port; }
+        public InetAddress getHost() {
+            return host;
+        }
+
+        public void setHost(InetAddress host) {
+            this.host = host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
+        }
 
         /**
          * Returns the host address as raw bytes (4 bytes for IPv4, 16 for IPv6).
@@ -412,6 +468,7 @@ public class ObservationInfo {
             
             return array;
         }
+
         public static Cri fromCbor(CBORObject array) {
             if (array == null) {
                 throw new IllegalArgumentException("CRI must not be null");
