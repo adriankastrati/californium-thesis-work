@@ -196,12 +196,10 @@ public class MulticastObservableResource extends CoapResource {
     GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
     Token exchangeToken = exchange.advanced().getRequest().getToken();
 
-    // This is the self-sent phantom request to start group observation
-    // OR a notification being sent to the phantom exchange
+
     Token pendingToken = GroupObservationsInfo.getInstance().getPendingToken(uriPath);
     
     if (pendingToken != null && pendingToken.equals(exchangeToken)) {
-      // Initial phantom request during setup - suppress and store
       // Suppress the response - it will establish the observation but not be sent on wire
       exchange.advanced().setSuppressResponse(true);
       
@@ -210,15 +208,16 @@ public class MulticastObservableResource extends CoapResource {
       InetSocketAddress multicastAddress = groupObservationsInfo.getMulticastAddress();
       ObservationInfo observationInfo = new ObservationInfo(localAddress, multicastAddress, exchangeToken);
       
-      // Start the group observation (this removes token from pendingMulticastNotificationTokens)
+      // Start the group observation, this removes token from pendingMulticastNotificationTokens
       groupObservationsInfo.startGroupObservation(uriPath, observationInfo);
+
       // Clear the setup-in-progress flag
       groupObservationsInfo.setGroupObservationSetupInProgress(uriPath, false);
       
-      // Send informative response (5.03 Service Unavailable) to all pending clients
+      // Send informative response to all pending clients
       sendInformativeResponsesToClients(uriPath, observationInfo);
 
-      // Still respond - this will establish the observe relation internally
+      // Still respond, this will establish the observe relation internally
       // but the response will be suppressed by StackBottomAdapter
       exchange.respond(ResponseCode.CONTENT, this.content);
     }else
@@ -270,14 +269,11 @@ public class MulticastObservableResource extends CoapResource {
 		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
 		
 		// Set source context to MULTICAST ADDRESS 
-		// When notifications are sent, the response destination is set from request source,
-		// so setting multicast here means notifications go to the multicast group
 		InetSocketAddress multicastAddress = groupInfo.getMulticastAddress();
 		phantomRequest.setSourceContext(new AddressEndpointContext(multicastAddress));
 		LOGGER.debug("Phantom request source set to multicast address: {}", multicastAddress);
 
 		// Step 7: Create the Exchange for server-side processing
-		// Use Origin.REMOTE because the server should treat this as an incoming request
 		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
 
 		// Mark exchange as phantom request
@@ -335,19 +331,15 @@ public class MulticastObservableResource extends CoapResource {
 						// Note: First client is NOT added to pending clients - it will continue
 						// to handleGET after phantom completes and receive informative response there
             final Exchange phantomExchange = groupObservationsInfo.createPhantomExchange(this, multicastToken, exchange.advanced());					
-						
-            // final Exchange phantomExchange = createPhantomExchange(this, multicastToken, exchange.advanced());					
-						
-						// Deliver phantom inline (synchronously) so the group observation is established
-						// before the first client's request continues to handleGET.
+								
+					
 						// The phantom's observe relation will be established during response handling
-						// via ObserveRelation.onResponse(), not here.
+						// via ObserveRelation.onResponse()
 						LOGGER.debug("Delivering phantom request for {} with token {}", resourceUri, multicastToken);
             serverMessageDeliverer.deliverRequest(phantomExchange);
 
 						// After phantom is delivered, the group observation is established.
 						// Now continue to let the first client's request reach handleGET,
-						// where it will see the group observation exists and send informative response.
 				}
   }
 }

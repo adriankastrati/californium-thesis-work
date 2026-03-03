@@ -134,6 +134,11 @@ public class UDPConnector implements Connector {
 
 	private volatile DatagramSocket socket;
 
+	/**
+	 * Dedicated socket for sending multicast packets.
+	 */
+	private volatile MulticastSocket multicastSendSocket;
+
 	protected volatile InetSocketAddress effectiveAddr;
 
 	/**
@@ -286,6 +291,14 @@ public class UDPConnector implements Connector {
 		 * 1.7.0_09, Windows 7.
 		 */
 
+		// Initialize multicast send socket
+		MulticastSocket mcSocket = new MulticastSocket();
+		NetworkInterface ni = NetworkInterfacesUtil.getMulticastInterface();
+		if (ni != null) {
+			mcSocket.setNetworkInterface(ni);
+		}
+		multicastSendSocket = mcSocket;
+
 		LOGGER.info("UDPConnector listening on {}, recv buf = {}, send buf = {}, recv packet size = {}", effectiveAddr,
 				receiveBufferSize, sendBufferSize, receiverPacketSize);
 	}
@@ -315,6 +328,10 @@ public class UDPConnector implements Connector {
 			if (socket != null) {
 				socket.close();
 				socket = null;
+			}
+			if (multicastSendSocket != null) {
+				multicastSendSocket.close();
+				multicastSendSocket = null;
 			}
 			// stop all threads
 			for (Thread t : senderThreads) {
@@ -501,40 +518,17 @@ public class UDPConnector implements Connector {
 				try {
 					raw.onContextEstablished(connectionContext);
 					if (datagram.getAddress().isMulticastAddress()) {
-						LOGGER.debug("=== MULTICAST SEND DEBUG ===");
-						LOGGER.debug("  Destination: {}:{}", datagram.getAddress().getHostAddress(), datagram.getPort());
-						LOGGER.debug("  Datagram length: {} bytes", datagram.getLength());
-						LOGGER.debug("  Datagram data (first 32 bytes): {}", 
-							StringUtil.byteArray2Hex(Arrays.copyOf(datagram.getData(), Math.min(32, datagram.getLength()))));
-						LOGGER.debug("  isMulticastAddress: {}", datagram.getAddress().isMulticastAddress());
-						LOGGER.debug("  Current socket local addr: {}", currentSocket.getLocalSocketAddress());
-						LOGGER.debug("  Current socket bound: {}", currentSocket.isBound());
-						
-						try (MulticastSocket multicastSocket = new MulticastSocket()) {
-							// Get the first IPv4 multicast interface
-							NetworkInterface ni = NetworkInterfacesUtil.getMulticastInterface();
-							if (ni != null) {
-								multicastSocket.setNetworkInterface(ni);
-								LOGGER.debug("  Set network interface to: {}", ni.getDisplayName());
-							}
-							
-							LOGGER.debug("  MulticastSocket created, local addr: {}", multicastSocket.getLocalSocketAddress());
-							LOGGER.debug("  MulticastSocket interface: {}", multicastSocket.getNetworkInterface());
-							LOGGER.debug("  MulticastSocket TTL: {}", multicastSocket.getTimeToLive());
-							multicastSocket.send(datagram);
-							LOGGER.debug("  MulticastSocket.send() completed");
+						MulticastSocket mcSocket = multicastSendSocket;
+						if (mcSocket != null) {
+							mcSocket.send(datagram);
 						}
-						LOGGER.debug("=== END MULTICAST SEND DEBUG ===");
 					} else {
 						currentSocket.send(datagram);
 					}
 					raw.onSent();
 				} catch (IOException ex) {
 					raw.onError(ex);
-					LOGGER.debug("UDPConnector Error {} for message to address {} with payload {}",ex.getMessage(),datagram.getAddress(),datagram.getData());
 				}
-				LOGGER.debug("UDPConnector ({}) sent {} bytes to {}", this, datagram.getLength(),
-						StringUtil.toLog(destinationAddress));
 			} else {
 				raw.onError(new IOException("socket already closed!"));
 			}
