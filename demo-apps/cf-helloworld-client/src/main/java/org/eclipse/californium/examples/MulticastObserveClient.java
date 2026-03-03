@@ -20,6 +20,7 @@ import org.eclipse.californium.core.coap.EmptyMessage;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.observe.ObservationInfo;
+import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.UDPConnector;
 import org.eclipse.californium.elements.UdpMulticastConnector;
 import org.eclipse.californium.elements.config.Configuration;
@@ -92,7 +93,7 @@ public class MulticastObserveClient {
             LOGGER.info("Multicast receiver activated.");
             
             // Now create phantom request and register observe relation
-            Request phantomRequest = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString());
+            Request phantomRequest = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
             LOGGER.info("Created PhantomRequest with token: {}", multicastToken);
             
             // Register phantom observe relation so incoming multicast notifications are routed to handler
@@ -126,11 +127,14 @@ public class MulticastObserveClient {
     }
   }
 
-  private static Request createPhantomRequest(Token multicastToken, String requestedURI) {
+  private static Request createPhantomRequest(Token multicastToken, String requestedURI, InetAddress groupAddr, int groupPort) {
     Request phantomRequest = Request.newGet(); // GET
 
     phantomRequest.setToken(multicastToken); // multicast token
     phantomRequest.setObserve();         // Observe=0
+    // For multicast phantom requests, set destination context to the multicast group
+    // so endpoint context matching will accept responses from multicast senders
+    phantomRequest.setDestinationContext(new AddressEndpointContext(new InetSocketAddress(groupAddr, groupPort)));
     phantomRequest.setURI(requestedURI); 
     phantomRequest.setType(Type.NON);    // multicast uses NON
     phantomRequest.setShouldSend(false);     //don't actually send over network
@@ -203,33 +207,33 @@ public class MulticastObserveClient {
     endpoint.start();
 
 
-    endpoint.addInterceptor(new MessageInterceptor() {
-      @Override
-      public void sendRequest(Request request) {
-        LOGGER.info("[INTERCEPTOR] Sending request: {}", request);
-      }
-      @Override
-      public void sendResponse(Response response) {
-        LOGGER.info("[INTERCEPTOR] Sending response: {}", response);
-      }
-      @Override
-      public void sendEmptyMessage(EmptyMessage message) {
-        LOGGER.info("[INTERCEPTOR] Sending empty: {}", message);
-      }
-      @Override
-      public void receiveRequest(Request request) {
-        LOGGER.info("[INTERCEPTOR] Received request: {}", request);
-      }
-      @Override
-      public void receiveResponse(Response response) {
-        LOGGER.info("[INTERCEPTOR] Received response: {}", Utils.prettyPrint(response));
-        LOGGER.info("[INTERCEPTOR] Response token: {}", response.getTokenString());
-      }
-      @Override
-      public void receiveEmptyMessage(EmptyMessage message) {
-        LOGGER.info("[INTERCEPTOR] Received empty: {}", message);
-      }
-    });
+    // endpoint.addInterceptor(new MessageInterceptor() {
+    //   @Override
+    //   public void sendRequest(Request request) {
+    //     LOGGER.info("[INTERCEPTOR] Sending request: {}", request);
+    //   }
+    //   @Override
+    //   public void sendResponse(Response response) {
+    //     LOGGER.info("[INTERCEPTOR] Sending response: {}", response);
+    //   }
+    //   @Override
+    //   public void sendEmptyMessage(EmptyMessage message) {
+    //     LOGGER.info("[INTERCEPTOR] Sending empty: {}", message);
+    //   }
+    //   @Override
+    //   public void receiveRequest(Request request) {
+    //     LOGGER.info("[INTERCEPTOR] Received request: {}", request);
+    //   }
+    //   @Override
+    //   public void receiveResponse(Response response) {
+    //     LOGGER.info("[INTERCEPTOR] Received response: {}", Utils.prettyPrint(response));
+    //     LOGGER.info("[INTERCEPTOR] Response token: {}", response.getTokenString());
+    //   }
+    //   @Override
+    //   public void receiveEmptyMessage(EmptyMessage message) {
+    //     LOGGER.info("[INTERCEPTOR] Received empty: {}", message);
+    //   }
+    // });
 
     multicastClient = new CoapClient();
     multicastClient.setEndpoint(endpoint);
