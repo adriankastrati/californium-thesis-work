@@ -62,7 +62,7 @@ public class MulticastObserveClient {
 
     @Override
     public void onLoad(CoapResponse response) {
-      LOGGER.info("onLoad(): {}", Utils.prettyPrint(response));
+      LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
 
       // First response might be an "informative response" containing ObservationInfo (group+token).
       if (response.getOptions().isContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR)) {

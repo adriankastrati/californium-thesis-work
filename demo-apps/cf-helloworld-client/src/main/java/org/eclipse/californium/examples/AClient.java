@@ -69,12 +69,12 @@ public class AClient {
 				PUTClient.main(uriMult, content);
 				break;
 
-      case "mult":
-        System.out.println("MULTI");
-        MulticastObserveClient.main(uriMult,1000);
-        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
-        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
-        break;
+	      case "mult":
+	        System.out.println("MULTI");
+	        MulticastObserveClient.main(uriMult,1000);
+	        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
+	        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
+	        break;
 				
 			case "mix":
 				System.out.println("-----------[GET]-------------");

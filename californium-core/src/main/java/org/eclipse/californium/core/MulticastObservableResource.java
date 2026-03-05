@@ -108,9 +108,9 @@ public class MulticastObservableResource extends CoapResource {
     byte[] payload = obsInfo.toCbor();
     response.setPayload(payload);
     
-    LOGGER.info("Sending informative response (5.03) to client {} with token {}. ObservationInfo: {}",
+    LOGGER.debug("Sending informative response (5.03) to client {} with token {}. ObservationInfo: {}",
         exchange.getSourceSocketAddress(), exchange.advanced().getRequest().getToken(), obsInfo);
-    LOGGER.info("payload: {}",response.toString());
+    LOGGER.debug("payload: {}",response.toString());
     
     // Send the informative response
     exchange.respond(response);

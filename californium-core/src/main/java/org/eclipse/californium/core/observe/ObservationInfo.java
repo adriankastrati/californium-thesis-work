@@ -1,45 +1,55 @@
 package org.eclipse.californium.core.observe;
 
+import java.io.ByteArrayOutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 
 import org.eclipse.californium.core.coap.CoAP;
+import org.eclipse.californium.core.coap.OptionSet;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
-
-import com.upokecenter.cbor.CBORObject;
-import com.upokecenter.cbor.CBORType;
+import org.eclipse.californium.core.network.serialization.DataSerializer;
+import org.eclipse.californium.elements.util.DatagramWriter;
 
 
 /**
  * Represents the informative response payload (5.03 Service Unavailable)
- * as defined in draft-ietf-core-observe-multicast-notifications.
+ * as defined in draft-ietf-core-observe-multicast-notifications-13.
  * 
- * CBOR structure:
- * {
- *   0 => tp_info,        ; REQUIRED
- *   1 => ph_req,         ; OPTIONAL
- *   2 => last_notif,     ; OPTIONAL
- *   3 => next_not_before,; OPTIONAL
- *   4 => ending          ; OPTIONAL
+ * <pre>
+ * informative_response_payload = {
+ *    0 => array, ; 'tp_info' (transport-specific information)
+ *  ? 1 => bstr,  ; 'ph_req' (transport-independent information)
+ *  ? 2 => bstr,  ; 'last_notif' (transport-independent information)
+ *  ? 3 => uint,  ; 'next_not_before'
+ *  ? 4 => ~time  ; 'ending'
  * }
+ * </pre>
+ * 
+ * CBOR encoding and decoding is done without external libraries using
+ * lightweight helpers for the small subset of CBOR types required.
+ * 
+ * @see <a href="https://datatracker.ietf.org/doc/draft-ietf-core-observe-multicast-notifications/">
+ *      draft-ietf-core-observe-multicast-notifications</a>
  */
 public class ObservationInfo {
 
-    // CBOR 0 — REQUIRED
+    // CBOR key 0 — REQUIRED: transport protocol information
     private TpInfo tpInfo;
 
-    // optional - byte serialization of phantom request
+    // CBOR key 1 — OPTIONAL: byte serialization of phantom request
+    // (transport-independent: code byte + serialized options + optional payload marker + payload)
     private byte[] phReq;
 
-    // optional - response of last notification
-    private Response lastNotif;
+    // CBOR key 2 — OPTIONAL: byte serialization of the last multicast notification
+    // (transport-independent: code byte + serialized options + optional payload marker + payload)
+    private byte[] lastNotifBytes;
 
-    // optional - seconds until next notification
+    // CBOR key 3 — OPTIONAL: seconds until next notification (uint)
     private Long nextNotBefore;
 
-    // optional - ending time of group observation
+    // CBOR key 4 — OPTIONAL: ending time of group observation (~time)
     private Long ending;
 
     public ObservationInfo() {
@@ -50,7 +60,7 @@ public class ObservationInfo {
     }
 
     public ObservationInfo(InetSocketAddress serverAddress, InetSocketAddress multicastAddress, Token token) {
-        this.tpInfo = new TpInfo(serverAddress,multicastAddress,token);
+        this.tpInfo = new TpInfo(serverAddress, multicastAddress, token);
     }
 
     public Token getToken() {
@@ -73,12 +83,39 @@ public class ObservationInfo {
         this.phReq = phReq;
     }
 
-    public Response getLastNotif() {
-        return lastNotif;
+    /**
+     * Gets the transport-independent serialization of the last multicast notification.
+     * 
+     * @return the serialized bytes, or {@code null}
+     */
+    public byte[] getLastNotifBytes() {
+        return lastNotifBytes;
     }
 
-    public void setLastNotif(Response lastNotif) {
-        this.lastNotif = lastNotif;
+    /**
+     * Sets the transport-independent serialization of the last multicast notification.
+     * 
+     * @param lastNotifBytes serialized as per Section 4.2.2:
+     *        code byte + serialized options + optional (0xFF + payload)
+     */
+    public void setLastNotifBytes(byte[] lastNotifBytes) {
+        this.lastNotifBytes = lastNotifBytes;
+    }
+
+    /**
+     * Sets last_notif from a Californium {@link Response} by serializing it
+     * to the transport-independent format defined in Section 4.2.2 of the draft.
+     * <p>
+     * The format is: code_byte | serialized_options | [0xFF | payload]
+     * 
+     * @param response the last multicast notification response
+     */
+    public void setLastNotif(Response response) {
+        if (response == null) {
+            this.lastNotifBytes = null;
+            return;
+        }
+        this.lastNotifBytes = serializeTransportIndependent(response);
     }
 
     public Long getNextNotBefore() {
@@ -99,134 +136,133 @@ public class ObservationInfo {
 
     /**
      * Serializes this ObservationInfo to CBOR bytes.
-     * 
-     * CBOR structure (draft-ietf-core-observe-multicast-notifications):
-     * {
-     *   0 => tp_info,         ; REQUIRED
-     *   1 => ph_req,          ; OPTIONAL - serialized phantom request
-     *   2 => last_notif,      ; OPTIONAL - serialized last notification
-     *   3 => next_not_before, ; OPTIONAL - seconds until next notification
-     *   4 => ending           ; OPTIONAL - ending time of group observation
+     * <p>
+     * CBOR structure (draft-ietf-core-observe-multicast-notifications-13, Section 11):
+     * <pre>
+     * informative_response_payload = {
+     *    0 => array, ; 'tp_info'
+     *  ? 1 => bstr,  ; 'ph_req'
+     *  ? 2 => bstr,  ; 'last_notif'
+     *  ? 3 => uint,  ; 'next_not_before'
+     *  ? 4 => ~time  ; 'ending'
      * }
+     * </pre>
      * 
      * @return CBOR encoded bytes
+     * @throws IllegalStateException if tp_info is not set
      */
     public byte[] toCbor() {
-        CBORObject map = CBORObject.NewMap();
-        
-        // 0 => tp_info (REQUIRED)
         if (tpInfo == null) {
             throw new IllegalStateException("missing tp_info");
         }
-        map.set(0, tpInfo.toCbor());
-        
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        // Count map entries
+        int entries = 1; // key 0 (tp_info) always present
+        if (phReq != null) entries++;
+        if (lastNotifBytes != null) entries++;
+        if (nextNotBefore != null) entries++;
+        if (ending != null) entries++;
+
+        cborWriteMapHeader(out, entries);
+
+        // 0 => tp_info (REQUIRED)
+        cborWriteUint(out, 0);
+        tpInfo.writeCbor(out);
+
         // 1 => ph_req (OPTIONAL)
         if (phReq != null) {
-            map.set(1, CBORObject.FromObject(phReq));
+            cborWriteUint(out, 1);
+            cborWriteBstr(out, phReq);
         }
-        
-        // 2 => last_notif (OPTIONAL) - serialize the Response
-        if (lastNotif != null) {
-            byte[] serializedResponse = lastNotif.getBytes();
-            if (serializedResponse != null) {
-                map.set(2, CBORObject.FromObject(serializedResponse));
-            }
+
+        // 2 => last_notif (OPTIONAL)
+        if (lastNotifBytes != null) {
+            cborWriteUint(out, 2);
+            cborWriteBstr(out, lastNotifBytes);
         }
-        
+
         // 3 => next_not_before (OPTIONAL)
         if (nextNotBefore != null) {
-            map.set(3, CBORObject.FromObject(nextNotBefore));
+            cborWriteUint(out, 3);
+            cborWriteUint(out, nextNotBefore);
         }
-        
+
         // 4 => ending (OPTIONAL)
         if (ending != null) {
-            map.set(4, CBORObject.FromObject(ending));
+            cborWriteUint(out, 4);
+            cborWriteUint(out, ending);
         }
-        
-        return map.EncodeToBytes();
+
+        return out.toByteArray();
     }
 
+    /**
+     * Serializes a CoAP Response to the transport-independent format
+     * defined in Section 4.2.2 of the draft.
+     * <p>
+     * The format is the concatenation of:
+     * <ol>
+     *   <li>A single byte: the Code field value</li>
+     *   <li>The byte serialization of the complete sequence of CoAP options</li>
+     *   <li>If the message has a non-zero length payload: 0xFF followed by the payload</li>
+     * </ol>
+     * 
+     * @param response the CoAP response to serialize
+     * @return the transport-independent byte serialization
+     */
+    public static byte[] serializeTransportIndependent(Response response) {
+        DatagramWriter writer = new DatagramWriter();
+        writer.writeByte((byte) response.getRawCode());
+        DataSerializer.serializeOptionsAndPayload(writer, response.getOptions(), response.getPayload());
+        return writer.toByteArray();
+    }
+
+    /**
+     * Parse ObservationInfo from CBOR bytes.
+     * 
+     * @param cborBytes the CBOR encoded bytes
+     * @return parsed ObservationInfo
+     * @throws IllegalArgumentException if the CBOR structure is invalid
+     */
     public static ObservationInfo fromCbor(byte[] cborBytes) {
         if (cborBytes == null) {
             throw new IllegalArgumentException("cborBytes must not be null");
         }
-        CBORObject map = CBORObject.DecodeFromBytes(cborBytes);
-        return fromCbor(map);
-    }
-
-    /**
-     * Parse ObservationInfo from a CBOR map object.
-     */
-    public static ObservationInfo fromCbor(CBORObject map) {
-        if (map == null) {
-            throw new IllegalArgumentException("CBOR map must not be null");
-        }
-        if (map.getType() != CBORType.Map) {
-            throw new IllegalArgumentException("ObservationInfo must be a CBOR map");
-        }
+        CborReader reader = new CborReader(cborBytes);
+        int mapSize = reader.readMapHeader();
 
         ObservationInfo info = new ObservationInfo();
+        boolean hasTpInfo = false;
 
-        // key 0: tp_info (REQUIRED)
-        CBORObject tpInfoObj = map.get(CBORObject.FromObject(0));
-        if (tpInfoObj == null) {
+        for (int i = 0; i < mapSize; i++) {
+            int key = (int) reader.readUint();
+            switch (key) {
+                case 0: // tp_info
+                    info.setTpInfo(TpInfo.readCbor(reader));
+                    hasTpInfo = true;
+                    break;
+                case 1: // ph_req
+                    info.setPhReq(reader.readBstr());
+                    break;
+                case 2: // last_notif
+                    info.setLastNotifBytes(reader.readBstr());
+                    break;
+                case 3: // next_not_before
+                    info.setNextNotBefore(reader.readUint());
+                    break;
+                case 4: // ending
+                    info.setEnding(reader.readUint());
+                    break;
+                default:
+                    reader.skipItem(); // ignore unknown keys
+                    break;
+            }
+        }
+
+        if (!hasTpInfo) {
             throw new IllegalArgumentException("Missing required key 0 (tp_info)");
         }
-        info.setTpInfo(TpInfo.fromCbor(tpInfoObj));
-
-        // key 1: ph_req (OPTIONAL) - byte string
-        CBORObject phReqObj = map.get(CBORObject.FromObject(1));
-        if (phReqObj != null) {
-            if (phReqObj.getType() != CBORType.ByteString) {
-                throw new IllegalArgumentException("Key 1 (ph_req) must be a CBOR byte string");
-            }
-            info.setPhReq(phReqObj.GetByteString());
-        }
-
-        // key 2: last_notif (OPTIONAL) - byte string
-        // NOTE: We store raw bytes and optionally try to parse as Californium Response.
-        CBORObject lastNotifObj = map.get(CBORObject.FromObject(2));
-        if (lastNotifObj != null) {
-            if (lastNotifObj.getType() != CBORType.ByteString) {
-                throw new IllegalArgumentException("Key 2 (last_notif) must be a CBOR byte string");
-            }
-            byte[] notifBytes = lastNotifObj.GetByteString();
-
-            // Your current class stores lastNotif as Response.
-            // If these bytes are transport-independent per draft, they may NOT be parseable
-            // as a full Californium Response packet. So we try best-effort and ignore failures.
-            try {
-                // If your Californium version has a parser utility, use it here instead.
-                // Example (pseudo):
-                // DataParser parser = ...;
-                // Message msg = parser.parseMessage(notifBytes);
-                // if (msg instanceof Response) info.setLastNotif((Response) msg);
-
-                // For now: no reliable generic parser call in this snippet.
-                // Leave lastNotif unset if you can't parse the bytes as a full Response.
-            } catch (Exception e) {
-                // Best effort only: raw bytes are valid enough for protocol state.
-            }
-        }
-
-        // key 3: next_not_before (OPTIONAL) - integer
-        CBORObject nnbObj = map.get(CBORObject.FromObject(3));
-        if (nnbObj != null) {
-            if (!nnbObj.isIntegral()) {
-                throw new IllegalArgumentException("Key 3 (next_not_before) must be an integer");
-            }
-            info.setNextNotBefore(nnbObj.AsInt64Value());
-        }
-
-        // key 4: ending (OPTIONAL) - integer
-        CBORObject endingObj = map.get(CBORObject.FromObject(4));
-        if (endingObj != null) {
-            if (!endingObj.isIntegral()) {
-                throw new IllegalArgumentException("Key 4 (ending) must be an integer");
-            }
-            info.setEnding(endingObj.AsInt64Value());
-        }
-
         return info;
     }
 
@@ -238,8 +274,8 @@ public class ObservationInfo {
         if (phReq != null) {
             sb.append("  phReq=").append(phReq.length).append(" bytes,\n");
         }
-        if (lastNotif != null) {
-            sb.append("  lastNotif=").append(lastNotif).append(",\n");
+        if (lastNotifBytes != null) {
+            sb.append("  lastNotif=").append(lastNotifBytes.length).append(" bytes,\n");
         }
         if (nextNotBefore != null) {
             sb.append("  nextNotBefore=").append(nextNotBefore).append(",\n");
@@ -268,96 +304,40 @@ public class ObservationInfo {
         public TpInfo() {
         }
 
-        /**
-         * Creates TpInfo from server address, multicast address, and shared token.
-         * 
-         * @param serverAddress the server's unicast address and port
-         * @param multicastAddress the multicast group address and port
-         * @param token the shared token T for the group observation
-         */
         public TpInfo(InetSocketAddress serverAddress, InetSocketAddress multicastAddress, Token token) {
             this.tpiServer = new Cri(serverAddress);
             this.tpiClient = new Cri(multicastAddress);
             this.token = token;
         }
 
-        public Cri getTpiServer() {
-            return tpiServer;
-        }
-
-        public void setTpiServer(Cri tpiServer) {
-            this.tpiServer = tpiServer;
-        }
-
-        public Cri getTpiClient() {
-            return tpiClient;
-        }
-
-        public void setTpiClient(Cri tpiClient) {
-            this.tpiClient = tpiClient;
-        }
-
-        public Token getToken() {
-            return token;
-        }
-
-        public void setToken(Token token) {
-            this.token = token;
-        }
+        public Cri getTpiServer() { return tpiServer; }
+        public void setTpiServer(Cri tpiServer) { this.tpiServer = tpiServer; }
+        public Cri getTpiClient() { return tpiClient; }
+        public void setTpiClient(Cri tpiClient) { this.tpiClient = tpiClient; }
+        public Token getToken() { return token; }
+        public void setToken(Token token) { this.token = token; }
 
         /**
-         * Serializes tp_info to CBOR array.
-         * 
-         * Structure for CoAP over UDP:
-         * [ tpi_server, tpi_client, tpi_token ]
-         * 
-         * @return CBORObject array
+         * Writes tp_info as CBOR array: [ tpi_server, tpi_client, tpi_token ]
          */
-        public CBORObject toCbor() {
-            CBORObject array = CBORObject.NewArray();
-            
-            // tpi_server: CRI for server address
-            if (tpiServer != null) {
-                array.Add(tpiServer.toCbor());
-            }
-            
-            // tpi_client: CRI for multicast group address
-            if (tpiClient != null) {
-                array.Add(tpiClient.toCbor());
-            }
-            
-            // tpi_token: shared token T as byte string
-            if (token != null) {
-                array.Add(CBORObject.FromObject(token.getBytes()));
-            }
-            
-            return array;
+        void writeCbor(ByteArrayOutputStream out) {
+            cborWriteArrayHeader(out, 3);
+            if (tpiServer != null) tpiServer.writeCbor(out);
+            if (tpiClient != null) tpiClient.writeCbor(out);
+            if (token != null) cborWriteBstr(out, token.getBytes());
         }
 
-        public static TpInfo fromCbor(CBORObject array) {
-            if (array == null) {
-                throw new IllegalArgumentException("tp_info must not be null");
-            }
-            if (array.getType() != CBORType.Array) {
-                throw new IllegalArgumentException("tp_info must be a CBOR array");
-            }
-
-            // For your UDP layout, expect [ tpi_server, tpi_client, tpi_token ]
-            if (array.size() < 3) {
+        static TpInfo readCbor(CborReader reader) {
+            int arraySize = reader.readArrayHeader();
+            if (arraySize < 3) {
                 throw new IllegalArgumentException("tp_info must have at least 3 elements for CoAP/UDP");
             }
-
             TpInfo tp = new TpInfo();
-
-            tp.setTpiServer(Cri.fromCbor(array.get(0)));
-            tp.setTpiClient(Cri.fromCbor(array.get(1)));
-
-            CBORObject tokenObj = array.get(2);
-            if (tokenObj.getType() != CBORType.ByteString) {
-                throw new IllegalArgumentException("tp_info[2] (tpi_token) must be a CBOR byte string");
-            }
-            tp.setToken(Token.fromProvider(tokenObj.GetByteString()));
-
+            tp.setTpiServer(Cri.readCbor(reader));
+            tp.setTpiClient(Cri.readCbor(reader));
+            tp.setToken(Token.fromProvider(reader.readBstr()));
+            // skip any extra elements
+            for (int i = 3; i < arraySize; i++) reader.skipItem();
             return tp;
         }
 
@@ -368,177 +348,240 @@ public class ObservationInfo {
     }
 
     public static class Cri {
-        /** Scheme ID for "coap" = -1 (negative of scheme number + 1) */
         public static final int SCHEME_COAP = -1;
-        /** Scheme ID for "coaps" = -2 */
         public static final int SCHEME_COAPS = -2;
 
         private int schemeId;
         private InetAddress host;
         private int port;
 
-        public Cri() {
-            this.schemeId = SCHEME_COAP;
-        }
+        public Cri() { this.schemeId = SCHEME_COAP; }
 
         public Cri(InetSocketAddress address) {
             this.schemeId = SCHEME_COAP;
             this.host = address.getAddress();
             this.port = address.getPort();
         }
+
         public Cri(int schemeId, InetAddress host, int port) {
             this.schemeId = schemeId;
             this.host = host;
             this.port = port;
         }
 
-        public int getSchemeId() {
-            return schemeId;
-        }
+        public int getSchemeId() { return schemeId; }
+        public void setSchemeId(int schemeId) { this.schemeId = schemeId; }
+        public InetAddress getHost() { return host; }
+        public void setHost(InetAddress host) { this.host = host; }
+        public int getPort() { return port; }
+        public void setPort(int port) { this.port = port; }
 
-        public void setSchemeId(int schemeId) {
-            this.schemeId = schemeId;
-        }
-
-        public InetAddress getHost() {
-            return host;
-        }
-
-        public void setHost(InetAddress host) {
-            this.host = host;
-        }
-
-        public int getPort() {
-            return port;
-        }
-
-        public void setPort(int port) {
-            this.port = port;
-        }
-
-        /**
-         * Returns the host address as raw bytes (4 bytes for IPv4, 16 for IPv6).
-         */
         public byte[] getHostBytes() {
             return host != null ? host.getAddress() : null;
         }
 
-        /**
-         * Returns true if port should be omitted (is default CoAP port).
-         */
         public boolean isDefaultPort() {
             return port == CoAP.DEFAULT_COAP_PORT;
         }
 
-        /**
-         * Converts to InetSocketAddress.
-         */
         public InetSocketAddress toSocketAddress() {
             return new InetSocketAddress(host, port);
         }
 
         /**
-         * Serializes this CRI to CBOR.
-         * 
-         * CRI structure per RFC 9290 (simplified for CoAP over UDP):
-         * [ scheme, host-ip, port? ]
-         * 
-         * - scheme: negative integer (-1 for coap, -2 for coaps)
-         * - host-ip: tagged byte string (tag 260 for IP address)
-         * - port: integer, omitted if default CoAP port (5683)
-         * 
-         * @return CBORObject array representing the CRI
+         * Writes CRI as CBOR array: [ scheme, host-ip, port? ]
+         * <p>
+         * scheme: negative int (-1 coap, -2 coaps), host-ip: bstr, port: uint (omitted if default)
          */
-        public CBORObject toCbor() {
-            CBORObject array = CBORObject.NewArray();
-            
-            // Scheme (negative integer: -1 for coap, -2 for coaps)
-            array.Add(schemeId);
-            
-            // Host as tagged byte string (tag 260 = IP address)
+        void writeCbor(ByteArrayOutputStream out) {
+            int elements = isDefaultPort() ? 2 : 3;
+            cborWriteArrayHeader(out, elements);
+            cborWriteNegInt(out, schemeId);
             if (host != null) {
-                byte[] hostBytes = host.getAddress();
-                array.Add(CBORObject.FromObject(hostBytes).WithTag(260));
+                cborWriteBstr(out, host.getAddress());
             }
-            
-            // Port (omit if default CoAP port)
             if (!isDefaultPort()) {
-                array.Add(port);
+                cborWriteUint(out, port);
             }
-            
-            return array;
         }
 
-        public static Cri fromCbor(CBORObject array) {
-            if (array == null) {
-                throw new IllegalArgumentException("CRI must not be null");
-            }
-            if (array.getType() != CBORType.Array) {
-                throw new IllegalArgumentException("CRI must be a CBOR array");
-            }
-            if (array.size() < 2) {
+        static Cri readCbor(CborReader reader) {
+            int arraySize = reader.readArrayHeader();
+            if (arraySize < 2) {
                 throw new IllegalArgumentException("CRI must have at least [scheme, host]");
             }
-
             Cri cri = new Cri();
-
-            // [0] scheme
-            CBORObject schemeObj = array.get(0);
-            if (!schemeObj.isIntegral()) {
-                throw new IllegalArgumentException("CRI scheme must be integer");
-            }
-            cri.setSchemeId(schemeObj.AsInt32Value());
-
-            // [1] host as tagged bstr (tag 260) or plain bstr (be tolerant)
-            CBORObject hostObj = array.get(1);
-            byte[] hostBytes = extractHostBytes(hostObj);
+            cri.setSchemeId((int) reader.readInt());
+            byte[] hostBytes = reader.readBstr();
             try {
                 cri.setHost(InetAddress.getByAddress(hostBytes));
             } catch (UnknownHostException e) {
                 throw new IllegalArgumentException("Invalid CRI host byte length: " + hostBytes.length, e);
             }
-
-            // [2] port optional
-            if (array.size() >= 3) {
-                CBORObject portObj = array.get(2);
-                if (!portObj.isIntegral()) {
-                    throw new IllegalArgumentException("CRI port must be integer");
-                }
-                cri.setPort(portObj.AsInt32Value());
+            if (arraySize >= 3) {
+                cri.setPort((int) reader.readUint());
             } else {
-                // Default based on scheme
-                if (cri.getSchemeId() == SCHEME_COAPS) {
-                    cri.setPort(CoAP.DEFAULT_COAP_SECURE_PORT);
-                } else {
-                    cri.setPort(CoAP.DEFAULT_COAP_PORT);
-                }
+                cri.setPort(cri.getSchemeId() == SCHEME_COAPS
+                        ? CoAP.DEFAULT_COAP_SECURE_PORT : CoAP.DEFAULT_COAP_PORT);
             }
-
+            // skip any extra elements
+            for (int i = 3; i < arraySize; i++) reader.skipItem();
             return cri;
-        }
-
-        private static byte[] extractHostBytes(CBORObject hostObj) {
-            if (hostObj == null) {
-                throw new IllegalArgumentException("CRI host must not be null");
-            }
-
-            // Be tolerant: accept tagged or untagged byte string
-            // Depending on CBOR lib behavior, tags may still report ByteString type.
-            if (hostObj.getType() != CBORType.ByteString) {
-                throw new IllegalArgumentException("CRI host must be a CBOR byte string (tagged or untagged)");
-            }
-
-            byte[] bytes = hostObj.GetByteString();
-            if (bytes.length != 4 && bytes.length != 16) {
-                throw new IllegalArgumentException("CRI host must be IPv4 (4 bytes) or IPv6 (16 bytes), got " + bytes.length);
-            }
-            return bytes;
         }
 
         @Override
         public String toString() {
-            String scheme = (schemeId == SCHEME_COAP) ? "coap" : (schemeId == SCHEME_COAPS) ? "coaps" : String.valueOf(schemeId);
+            String scheme = (schemeId == SCHEME_COAP) ? "coap"
+                    : (schemeId == SCHEME_COAPS) ? "coaps" : String.valueOf(schemeId);
             return scheme + "://" + (host != null ? host.getHostAddress() : "null") + ":" + port;
+        }
+    }
+
+
+    /** Writes a CBOR head byte (major type + argument). */
+    private static void cborWriteHead(ByteArrayOutputStream out, int majorType, long value) {
+        int mt = majorType << 5;
+        if (value < 24) {
+            out.write(mt | (int) value);
+        } else if (value <= 0xFF) {
+            out.write(mt | 24);
+            out.write((int) value);
+        } else if (value <= 0xFFFF) {
+            out.write(mt | 25);
+            out.write((int) (value >> 8) & 0xFF);
+            out.write((int) value & 0xFF);
+        } else if (value <= 0xFFFFFFFFL) {
+            out.write(mt | 26);
+            out.write((int) (value >> 24) & 0xFF);
+            out.write((int) (value >> 16) & 0xFF);
+            out.write((int) (value >> 8) & 0xFF);
+            out.write((int) value & 0xFF);
+        } else {
+            out.write(mt | 27);
+            for (int i = 7; i >= 0; i--) {
+                out.write((int) (value >> (i * 8)) & 0xFF);
+            }
+        }
+    }
+
+    /** Writes a CBOR unsigned integer (major type 0). */
+    static void cborWriteUint(ByteArrayOutputStream out, long value) {
+        cborWriteHead(out, 0, value);
+    }
+
+    /** Writes a CBOR negative integer (major type 1). Value must be negative (e.g. -1, -2). */
+    static void cborWriteNegInt(ByteArrayOutputStream out, long value) {
+        cborWriteHead(out, 1, -1 - value);
+    }
+
+    /** Writes a CBOR byte string (major type 2). */
+    static void cborWriteBstr(ByteArrayOutputStream out, byte[] bytes) {
+        cborWriteHead(out, 2, bytes.length);
+        out.write(bytes, 0, bytes.length);
+    }
+
+    /** Writes a CBOR array header (major type 4). */
+    static void cborWriteArrayHeader(ByteArrayOutputStream out, int length) {
+        cborWriteHead(out, 4, length);
+    }
+
+    /** Writes a CBOR map header (major type 5). */
+    static void cborWriteMapHeader(ByteArrayOutputStream out, int length) {
+        cborWriteHead(out, 5, length);
+    }
+
+    // ---- Lightweight CBOR decoding helper ----
+
+    /**
+     * Minimal CBOR reader for the data types used in this class.
+     * Supports unsigned int, negative int, byte strings, arrays, and maps.
+     */
+    static class CborReader {
+        private final byte[] data;
+        private int pos;
+
+        CborReader(byte[] data) {
+            this.data = data;
+            this.pos = 0;
+        }
+
+        private int nextByte() {
+            return data[pos++] & 0xFF;
+        }
+
+        private long readArgument(int additionalInfo) {
+            if (additionalInfo < 24) return additionalInfo;
+            if (additionalInfo == 24) return nextByte();
+            if (additionalInfo == 25) return (nextByte() << 8) | nextByte();
+            if (additionalInfo == 26) return ((long) nextByte() << 24) | (nextByte() << 16)
+                    | (nextByte() << 8) | nextByte();
+            if (additionalInfo == 27) {
+                long val = 0;
+                for (int i = 0; i < 8; i++) val = (val << 8) | nextByte();
+                return val;
+            }
+            throw new IllegalArgumentException("Unsupported CBOR additional info: " + additionalInfo);
+        }
+
+        /** Reads an unsigned integer (major type 0). */
+        long readUint() {
+            int b = nextByte();
+            int mt = b >> 5;
+            if (mt != 0) throw new IllegalArgumentException("Expected CBOR uint, got major type " + mt);
+            return readArgument(b & 0x1F);
+        }
+
+        /** Reads a signed integer: unsigned (type 0) or negative (type 1). */
+        long readInt() {
+            int b = nextByte();
+            int mt = b >> 5;
+            long arg = readArgument(b & 0x1F);
+            if (mt == 0) return arg;
+            if (mt == 1) return -1 - arg;
+            throw new IllegalArgumentException("Expected CBOR integer, got major type " + mt);
+        }
+
+        /** Reads a byte string (major type 2). */
+        byte[] readBstr() {
+            int b = nextByte();
+            int mt = b >> 5;
+            if (mt != 2) throw new IllegalArgumentException("Expected CBOR bstr, got major type " + mt);
+            int len = (int) readArgument(b & 0x1F);
+            byte[] result = new byte[len];
+            System.arraycopy(data, pos, result, 0, len);
+            pos += len;
+            return result;
+        }
+
+        /** Reads an array header and returns the array length. */
+        int readArrayHeader() {
+            int b = nextByte();
+            int mt = b >> 5;
+            if (mt != 4) throw new IllegalArgumentException("Expected CBOR array, got major type " + mt);
+            return (int) readArgument(b & 0x1F);
+        }
+
+        /** Reads a map header and returns the number of key-value pairs. */
+        int readMapHeader() {
+            int b = nextByte();
+            int mt = b >> 5;
+            if (mt != 5) throw new IllegalArgumentException("Expected CBOR map, got major type " + mt);
+            return (int) readArgument(b & 0x1F);
+        }
+
+        /** Skips one complete CBOR data item. */
+        void skipItem() {
+            int b = nextByte();
+            int mt = b >> 5;
+            long arg = readArgument(b & 0x1F);
+            switch (mt) {
+                case 0: case 1: break;                          // integer
+                case 2: case 3: pos += (int) arg; break;        // byte/text string
+                case 4: for (int i = 0; i < arg; i++) skipItem(); break;          // array
+                case 5: for (int i = 0; i < arg; i++) { skipItem(); skipItem(); } break; // map
+                case 6: skipItem(); break;                       // tag — skip content
+                case 7: break;                                   // simple / float
+            }
         }
     }
 }
