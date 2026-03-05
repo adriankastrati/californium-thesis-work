@@ -342,6 +342,11 @@ public class ObjectSecurityLayer extends AbstractLayer {
 			ctxDb.removeToken(exchange.getCurrentRequest().getToken());
 		}
 
+      if (exchange.isSuppressResponse() && exchange.getRequest().getOptions().hasOscore()) {
+      // Only suppress during initial setup, not for subsequent notifications
+      exchange.setSuppressResponse(false);
+      return;
+    }
 		super.sendResponse(exchange, response);
 	}
 

@@ -288,6 +288,22 @@ public interface Endpoint {
 	Configuration getConfig();
 
 	/**
+	 * Inject a request into the incoming processing pipeline as if it arrived
+	 * from the network. The request will traverse the full protocol stack
+	 * (including ObserveLayer, BlockwiseLayer, etc.) before reaching the
+	 * message deliverer and resource handlers.
+	 * <p>
+	 * Used for phantom requests in multicast observe notifications
+	 * (draft-ietf-core-observe-multicast-notifications).
+	 *
+	 * @param request the request to inject
+	 * @since 4.0
+	 */
+	default void injectIncomingRequest(Request request) {
+		throw new UnsupportedOperationException("Incoming request injection not supported by this endpoint");
+	}
+
+	/**
 	 * Cancel observation for this request.
 	 * 
 	 * @param token the token of the original request which establishes the

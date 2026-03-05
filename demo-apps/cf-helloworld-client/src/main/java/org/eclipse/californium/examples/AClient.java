@@ -31,21 +31,19 @@ public class AClient {
 
 	public static void main(String[] args) throws IOException, ConnectorException, InterruptedException {
 		
-		String uri = "coap://127.0.0.1:5683/pasta/";
+		String uri = "coap://127.0.0.1:5683/";
 		String uri_get = "get";
 		String[] resource = new String[]{uri+uri_get};
 		
 		String content;
-		String uri_obs = uri+"obs";
-		
-		String uriMult = uri+"mult";
+	
 		int rounds = 1;
 
 		
 		switch (args[0]) {
 			case "observe":
 				System.out.println("OBSERVE");
-				ObserveClient.main(uri_obs, 20);
+				ObserveClient.main(uri+"obs", 20);
 				break;
 			case "get":
 				System.out.println("GET");				
@@ -61,20 +59,26 @@ public class AClient {
 				
 				for(int i = 0; i < rounds; i++) {
 					content = Integer.toString((int)(Math.random() * 50 + 1));
-					PUTClient.main(uri_obs, content);
+					PUTClient.main(uri+"obs", content);
 				}	
 				break;
 			case "put-mult":		
 				content = Integer.toString((int)(Math.random() * 50 + 1));
-				PUTClient.main(uriMult, content);
+				PUTClient.main(uri+"mult", content);
 				break;
 
 	      case "mult":
-	        System.out.println("MULTI");
-	        MulticastObserveClient.main(uriMult,1000);
+	        System.out.println("MULT");
+	        MulticastObserveClient.main(uri+"mult",1000);
 	        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
 	        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
 	        break;
+	      case "OSCORE-mult":
+		        System.out.println(uri+"OSCORE-mult");
+		        OSCOREMulticastObserveClient.main(uri+"OSCORE-mult",1000);
+		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
+		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
+		        break;
 				
 			case "mix":
 				System.out.println("-----------[GET]-------------");

@@ -1,53 +1,22 @@
-/*******************************************************************************
- * Copyright (c) 2015, 2017 Institute for Pervasive Computing, ETH Zurich and others.
- * 
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v2.0
- * and Eclipse Distribution License v1.0 which accompany this distribution.
- * 
- * The Eclipse Public License is available at
- *    http://www.eclipse.org/legal/epl-v20.html
- * and the Eclipse Distribution License is available at
- *    http://www.eclipse.org/org/documents/edl-v10.html.
- * 
- * Contributors:
- *    Matthias Kovatsch - creator and main architect
- *    Martin Lanter - architect and re-implementation
- *    Dominique Im Obersteg - parsers and initial implementation
- *    Daniel Pauli - parsers and initial implementation
- *    Kai Hudalla - logging
- *    Achim Kraus (Bosch Software Innovations GmbH) - add nextObserveNumber 
- *                                                    (for use by subclasses)
- *    Achim Kraus (Bosch Software Innovations GmbH) - replace nextObserveNumber
- *                                                    by ObserveRelationFilter
- *                                                    (for use by subclasses)
- *    Kai Hudalla (Bosch Software Innovations GmbH) - use Logger's message formatting instead of
- *                                                    explicit String concatenation
- *    Bosch Software Innovations GmbH - migrate to SLF4J
- *    Achim Kraus (Bosch Software Innovations GmbH) - don't add canceled
- *                                                    observation-relations again.
- *    Achim Kraus (Bosch Software Innovations GmbH) - add iPATCH
- *                                                    cleanup source according 
- *                                                    coding guidelines
- ******************************************************************************/
-package org.eclipse.californium.core;
+
+package org.eclipse.californium.examples;
 
 import java.net.InetSocketAddress;
 import java.util.List;
+
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
-import org.eclipse.californium.core.coap.CoAP.Type;
+import org.eclipse.californium.core.CoapExchange;
+import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
+import org.eclipse.californium.core.network.Endpoint;
 import org.eclipse.californium.core.network.Exchange;
-import org.eclipse.californium.core.network.Exchange.Origin;
 import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.core.server.MessageDeliverer;
-import org.eclipse.californium.core.server.resources.Resource;
-import org.eclipse.californium.elements.AddressEndpointContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -217,61 +186,6 @@ public class MulticastObservableResource extends CoapResource {
     return this.getObserverCount() >= 0;
   }
 
-
-	/**
-	 * Creates a phantom request and exchange for multicast group observation.
-	 * <p>
-	 * The phantom request is a self-generated observe request that establishes
-	 * the group observation. Its source context is set to the multicast group
-	 * address so that responses (notifications) will be sent to the multicast group.
-	 * 
-	 * @param resource the resource to observe
-	 * @param multicastToken the token T allocated for multicast notifications
-	 * @param triggeringExchange the original client exchange that triggered this setup
-	 * @return the phantom exchange ready to be delivered
-	 */
-	protected Exchange createPhantomExchange(Resource resource, Token multicastToken, Exchange triggeringExchange) {
-		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
-		
-		// Step 6: Build the phantom GET request
-		Request phantomRequest = Request.newGet();
-		
-		// Set the multicast token T
-		phantomRequest.setToken(multicastToken);
-		
-		// Set Observe=0 (register for observation)
-		phantomRequest.setObserve();
-		
-		// Set URI path to the resource
-		phantomRequest.getOptions().setUriPath(resource.getURI());
-		
-		// Set message type to NON (multicast requires non-confirmable)
-		phantomRequest.setType(Type.NON);
-		
-		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
-		
-		// Set source context to MULTICAST ADDRESS 
-		InetSocketAddress multicastAddress = groupInfo.getMulticastAddress();
-		phantomRequest.setSourceContext(new AddressEndpointContext(multicastAddress));
-		LOGGER.debug("Phantom request source set to multicast address: {}", multicastAddress);
-
-		// Step 7: Create the Exchange for server-side processing
-		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
-
-		// Mark exchange as phantom request
-		phantomExchange.setPhantomRequest(true);
-		
-		// Set endpoint from triggering exchange if available
-		if (triggeringExchange.getEndpoint() != null) {
-			phantomExchange.setEndpoint(triggeringExchange.getEndpoint());
-		}
-		
-		LOGGER.debug("Created phantom exchange for resource {} with multicast token {}", 
-				resource.getURI(), multicastToken);
-		
-		return phantomExchange;
-	}
-
  
   private void setUpGroupObservation(CoapExchange exchange){
     String resourceUri = this.getURI();
@@ -309,19 +223,20 @@ public class MulticastObservableResource extends CoapResource {
 						Token multicastToken = groupObservationsInfo.allocateMulticastToken(resourceUri);
 						LOGGER.debug("Allocated multicast token {} for group observation on {}", multicastToken, resourceUri);
 
-						// Step 6-7: Create and deliver phantom request
-						// Note: First client is NOT added to pending clients - it will continue
-						// to handleGET after phantom completes and receive informative response there
-            final Exchange phantomExchange = groupObservationsInfo.createPhantomExchange(this, multicastToken, exchange.advanced());					
-								
-					
-						// The phantom's observe relation will be established during response handling
-						// via ObserveRelation.onResponse()
-						LOGGER.debug("Delivering phantom request for {} with token {}", resourceUri, multicastToken);
-            serverMessageDeliverer.deliverRequest(phantomExchange);
+						// Step 6: Create the phantom request
+						InetSocketAddress localAddress = exchange.advanced().getEndpoint().getAddress();
+						final Request phantomRequest = groupObservationsInfo.createPhantomRequest(this, multicastToken, localAddress);
 
-						// After phantom is delivered, the group observation is established.
-						// Now continue to let the first client's request reach handleGET,
+						// Step 7: Inject the phantom request into the endpoint's incoming pipeline.
+						// It will traverse the full protocol stack (ObserveLayer will recognize it
+						// as a phantom and rewrite the source to the multicast address).
+						Endpoint endpoint = exchange.advanced().getEndpoint();
+						LOGGER.debug("Injecting phantom request for {} with token {} into endpoint stack", resourceUri, multicastToken);
+						endpoint.injectIncomingRequest(phantomRequest);
+
+						// After phantom is injected, it will be processed asynchronously.
+						// The phantom's handlePhantomRequest() will send informative responses
+						// to all pending clients once the group observation is established.
 				}
   }
 }

@@ -734,13 +734,14 @@ public class BlockwiseLayer extends AbstractLayer {
 			}
 		}
     
-    if (exchange.isSuppressResponse()) {
+    if (exchange.isSuppressResponse() && !exchange.getRequest().getOptions().hasOscore()) {
       // Only suppress during initial setup, not for subsequent notifications
+      // If oscore is used, needs to pass OSCORE layer as well,
       exchange.setSuppressResponse(false);
       return;
 
     }
-    // Setup complete - this is a notification, let it through
+    //this is a notification, or hasOscore let it through
     lower().sendResponse(exchange, responseToSend);
 	}
 

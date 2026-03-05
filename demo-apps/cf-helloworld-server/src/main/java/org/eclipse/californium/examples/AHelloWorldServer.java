@@ -34,7 +34,6 @@ import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.TcpConfig;
 import org.eclipse.californium.elements.config.UdpConfig;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
-import org.eclipse.californium.core.MulticastObservableResource;
 
 import java.net.Inet4Address;
 
@@ -94,18 +93,14 @@ public class AHelloWorldServer extends CoapServer {
 	 * Constructor for a new Hello-World server. Here, the resources of the
 	 * server are initialized.
 	 */
-	public AHelloWorldServer() throws SocketException {
-
-    // Create pasta parent resource
-    CoapResource pastaResource = new CoapResource("pasta");
-    add(pastaResource);
-    
+	public AHelloWorldServer() throws SocketException { 
+   
     // Add get and obs as children of pasta
     GroupObservationsInfo.init();
-    pastaResource.add(new HelloWorldResource());
-    pastaResource.add(new ObservableResource());
-    pastaResource.add(new MulticastObservableResource("mult", true, this.getMessageDeliverer()));
-    add(new MyIpResource(MyIpResource.RESOURCE_NAME, true));
+    add(new HelloWorldResource());
+    add(new ObservableResource());
+    add(new MulticastObservableResource("mult", true, this.getMessageDeliverer()));
+    
 }
 
 	/*

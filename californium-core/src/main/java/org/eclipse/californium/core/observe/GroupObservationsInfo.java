@@ -7,7 +7,6 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.californium.core.coap.CoAP;
@@ -15,7 +14,6 @@ import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.network.Exchange;
-import org.eclipse.californium.core.network.Exchange.Origin;
 import org.eclipse.californium.core.network.RandomTokenGenerator;
 import org.eclipse.californium.core.network.TokenGenerator;
 import org.eclipse.californium.core.network.TokenGenerator.Scope;
@@ -68,6 +66,16 @@ public class GroupObservationsInfo {
   public InetSocketAddress getMulticastAddress(){
     return multicastAddress;
   }
+
+  private byte[] sid;
+
+  public void setSenderID(byte[] id){
+      this.sid = id;
+    }
+
+    public byte[] getSenderID(){
+      return this.sid;
+    }
   /**
    * 
    * @param uri to be checked for ongoing groupObservation
@@ -262,21 +270,26 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 		return false;
 	}
 
-  	/**
-	 * Creates a phantom request and exchange for multicast group observation.
-	 * 
-	 * The phantom request is a self-generated observe request that establishes
-	 * the group observation. Its source context is set to the multicast group
-	 * address so that responses (notifications) will be sent to the multicast group.
+	/**
+	 * Creates a phantom request for multicast group observation.
+	 * <p>
+	 * The phantom request is a self-generated observe request that will be
+	 * injected into the endpoint's incoming processing pipeline. It traverses
+	 * the full protocol stack upward. The ObserveLayer recognizes it as a
+	 * phantom request (matching token in pendingMulticastNotifTokens and
+	 * source == local address), sets the isPhantomRequest flag on the exchange,
+	 * and rewrites the source context to the multicast address.
+	 * <p>
+	 * The source context is set to the server's own local address so that
+	 * the ObserveLayer can verify the request originated from this server.
 	 * 
 	 * @param resource the resource to observe
 	 * @param multicastToken the token T allocated for multicast notifications
-	 * @param triggeringExchange the original client exchange that triggered this setup
-	 * @return the phantom exchange ready to be delivered
+	 * @param localAddress the server's own endpoint address
+	 * @return the phantom request ready to be injected via
+	 *         {@link org.eclipse.californium.core.network.Endpoint#injectIncomingRequest(Request)}
 	 */
-	public Exchange createPhantomExchange(Resource resource, Token multicastToken, Exchange triggeringExchange) {
-		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
-		
+	public Request createPhantomRequest(Resource resource, Token multicastToken, InetSocketAddress localAddress) {
 		// Step 6: Build the phantom GET request
 		Request phantomRequest = Request.newGet();
 		
@@ -292,27 +305,11 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 		// Set message type to NON (multicast requires non-confirmable)
 		phantomRequest.setType(Type.NON);
 		
-		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
-		
-		// Set source context to multicast address
-		// When notifications are sent, the response destination is set from request source,
-		// so setting multicast here means notifications go to the multicast group
-		InetSocketAddress multicastAddress = groupInfo.getMulticastAddress();
-		phantomRequest.setSourceContext(new AddressEndpointContext(multicastAddress));
+		// Set source context to the server's own local address.
+		// The ObserveLayer will verify source == local to confirm this is
+		// a self-sent phantom, then rewrite the source to the multicast address.
+		phantomRequest.setSourceContext(new AddressEndpointContext(localAddress));
 
-
-		// Step 7: Create the Exchange for server-side processing
-		// Use Origin.REMOTE because the server should see this as an incoming request
-		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
-
-		// Mark exchange as phantom request
-		phantomExchange.setPhantomRequest(true);
-		
-		// Set endpoint from triggering exchange if available
-		if (triggeringExchange.getEndpoint() != null) {
-			phantomExchange.setEndpoint(triggeringExchange.getEndpoint());
-		}
-
-		return phantomExchange;
+		return phantomRequest;
 	}
 }

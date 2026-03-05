@@ -37,6 +37,7 @@
 package org.eclipse.californium.core.network.stack;
 
 import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.List;
 
 import org.eclipse.californium.core.coap.CoAP.Type;
@@ -54,6 +55,7 @@ import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.EndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.util.StringUtil;
+import org.eclipse.californium.oscore.OscoreOptionDecoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,20 +79,12 @@ public class ObserveLayer extends AbstractLayer {
 
 	/**
 	 * Recognizes if a request is a phantom request for multicast observe notifications.
-	 * <p>
-	 * Per draft-ietf-core-observe-multicast-notifications, a phantom request is recognized if:
-	 * <ul>
-	 * <li>The request has the Observe option with value 0; AND</li>
-	 * <li>The token value is currently in pendingMulticastNotifTokens for the URI-path; AND</li>
-	 * <li>If NOT OSCORE-protected: source address and port are the server's own; AND</li>
-	 * <li>If OSCORE-protected: either the 'kid' matches the server's Sender ID and source is own,
-	 *     OR the 'kid' matches the Deterministic Client and request matches stored deterministic request</li>
-	 * </ul>
-	 * 
 	 * @param exchange the exchange containing the request
 	 * @return true if this is a phantom request
+	 * @throws CoapOSException if faulty oscore formatting
 	 */
 	private boolean isPhantomRequest(final Exchange exchange) {
+		LOGGER.debug("Checking if phantom Request");
 		Request request = exchange.getCurrentRequest();
 		Token token = request.getToken();
 		String uriPath = request.getOptions().getUriPathString();
@@ -107,23 +101,39 @@ public class ObserveLayer extends AbstractLayer {
 			return false;
 		}
 		
-		// Condition 3 & 4: Check based on OSCORE protection
+		// Condition 3: Check based on OSCORE protection
 		if (request.getOptions().hasOscore()) {
-			// OSCORE-protected request
-			// TODO: Implement OSCORE-specific checks:
-			// - Check if 'kid' in OSCORE option matches server's Sender ID AND source is own
-			// - OR check if 'kid' matches Deterministic Client AND request matches stored deterministic request
-			LOGGER.debug("OSCORE phantom request detection not yet fully implemented");
-			return false;
+			LOGGER.debug("has OSCORE");
+			// OSCORE-protected phantom request
+			try {
+				OscoreOptionDecoder decoder = new OscoreOptionDecoder(request.getBytes());
+				byte[] kid = decoder.getKid();
+				
+				// Case 1: Server's own phantom request (self-sent with OSCORE)
+				if (Arrays.equals(kid, groupObservationInfo.getSenderID())) {
+					InetSocketAddress sourceAddress = request.getSourceContext().getPeerAddress();
+					InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
+					LOGGER.debug("Phantom request check: source={}, local={}", 
+						sourceAddress, localAddress);
+					LOGGER.debug("Not Phantom OSCORE");
+					return sourceAddress.equals(localAddress);	
+				}
+				return false;
+			
+			} catch (Exception e) {
+				// OSCORE classes not available or other error - skip OSCORE processing
+				LOGGER.debug("OSCORE processing not available: {}", e.getMessage());
+				return false;
+			}
 		} else {
+			LOGGER.debug("Does not have OSCORE");
 			// NOT OSCORE-protected: source address and port must be the server's own
 			InetSocketAddress sourceAddress = request.getSourceContext().getPeerAddress();
 			InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
 			
-			boolean isOwnAddress = sourceAddress.equals(localAddress);
-			LOGGER.debug("Phantom request check: source={}, local={}, match={}", 
-					sourceAddress, localAddress, isOwnAddress);
-			return isOwnAddress;
+			LOGGER.debug("Phantom request check: source={}, local={}", 
+      sourceAddress, localAddress);
+      return sourceAddress.equals(localAddress);
 		}
 	}
 

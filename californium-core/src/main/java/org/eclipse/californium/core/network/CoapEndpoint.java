@@ -634,6 +634,36 @@ public class CoapEndpoint implements Endpoint, Executor {
 		return Collections.unmodifiableList(postProcessInterceptors);
 	}
 
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Injects the request into the incoming processing pipeline. The request
+	 * goes through the matcher (which creates an Exchange) and then traverses
+	 * the full CoAP stack upward, just as if it arrived from the network.
+	 * This is used for phantom requests in multicast observe.
+	 */
+	@Override
+	public void injectIncomingRequest(final Request request) {
+		if (!started) {
+			LOGGER.debug("{}not running, drop injected request {}", tag, request);
+			return;
+		}
+		request.setScheme(scheme);
+		// Assign a MID if not already set (incoming requests always have one)
+		if (!request.hasMID()) {
+			request.setMID(0);
+		}
+		execute(new Runnable() {
+			@Override
+			public void run() {
+				notifyReceive(interceptors, request);
+				if (!request.isCanceled()) {
+					matcher.receiveRequest(request, endpointStackReceiver);
+				}
+			}
+		});
+	}
+
 	@Override
 	public void sendRequest(final Request request) {
 		if (!started) {

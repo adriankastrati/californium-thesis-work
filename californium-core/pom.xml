@@ -30,6 +30,11 @@
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-api</artifactId>
 		</dependency>
+    <dependency>
+      <groupId>com.upokecenter</groupId>
+      <artifactId>cbor</artifactId>
+      <version>5.0.0-alpha2</version>
+    </dependency>
 		<!-- test dependencies -->
 		<dependency>
 			<groupId>junit</groupId>
