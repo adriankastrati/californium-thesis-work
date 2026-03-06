@@ -321,4 +321,19 @@ public interface Endpoint {
 	 * @since 4.0
 	 */
 	ApplicationAuthorizer getApplicationAuthorizer();
+
+	/**
+	 * Injects a locally-generated request into the CoAP protocol stack for
+	 * processing. The request traverses the stack bottom-up through all layers
+	 * (e.g., ObserveLayer, BlockwiseLayer) before reaching the MessageDeliverer.
+	 * <p>
+	 * Used for phantom requests in multicast observe notifications
+	 * (draft-ietf-core-observe-multicast-notifications).
+	 *
+	 * @param exchange the exchange containing the request to inject
+	 * @throws UnsupportedOperationException if not supported by this endpoint
+	 */
+	default void receiveLocalRequest(Exchange exchange) {
+		throw new UnsupportedOperationException("receiveLocalRequest not supported by this endpoint");
+	}
 }

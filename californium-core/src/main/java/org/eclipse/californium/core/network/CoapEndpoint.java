@@ -456,7 +456,6 @@ public class CoapEndpoint implements Endpoint, Executor {
 		return tag;
 	}
 
-	@Override
 	public synchronized void start() throws IOException {
 		if (started) {
 			LOGGER.debug("{}Endpoint at {} is already started", tag, getUri());

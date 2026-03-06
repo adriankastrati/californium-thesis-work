@@ -29,11 +29,13 @@ import org.eclipse.californium.core.CoapServer;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
-import org.eclipse.californium.core.server.resources.MyIpResource;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.TcpConfig;
 import org.eclipse.californium.elements.config.UdpConfig;
+import org.eclipse.californium.elements.util.DaemonThreadFactory;
+import org.eclipse.californium.elements.util.ExecutorsUtil;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
+import org.eclipse.californium.elements.util.ProtocolScheduledExecutorService;
 
 import java.net.Inet4Address;
 
@@ -56,7 +58,12 @@ public class AHelloWorldServer extends CoapServer {
 
 			server.addEndpoint();
 			server.start();
-
+			try {
+				Thread.currentThread().join();
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
 		} catch (SocketException e) {
 			System.err.println("Failed to init: " + e.getMessage());
 		}
@@ -76,7 +83,10 @@ public class AHelloWorldServer extends CoapServer {
 		loopbackBuilder.setInetSocketAddress(loopbackSocket);
 		loopbackBuilder.setConfiguration(config);
 		addEndpoint(loopbackBuilder.build());
-
+		final ProtocolScheduledExecutorService executorService = ExecutorsUtil
+				.newSingleThreadedProtocolExecutor(new DaemonThreadFactory(":CoapEndpoint")); //$NON-NLS-1$
+		this.setExecutor(executorService, isRunning());
+    
 		// Physical interface endpoint for multicast to work
 		Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
 		if (ipv4 != null) {
@@ -93,14 +103,13 @@ public class AHelloWorldServer extends CoapServer {
 	 * Constructor for a new Hello-World server. Here, the resources of the
 	 * server are initialized.
 	 */
-	public AHelloWorldServer() throws SocketException { 
+	public AHelloWorldServer() throws SocketException {
    
-    // Add get and obs as children of pasta
+    // Add get and obs
     GroupObservationsInfo.init();
     add(new HelloWorldResource());
     add(new ObservableResource());
     add(new MulticastObservableResource("mult", true, this.getMessageDeliverer()));
-    
 }
 
 	/*

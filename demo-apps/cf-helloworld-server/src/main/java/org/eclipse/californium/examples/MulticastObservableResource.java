@@ -318,7 +318,7 @@ public class MulticastObservableResource extends CoapResource {
         // Step 6-7: Create and deliver phantom request
         // Note: First client is NOT added to pending clients - it will continue
         // to handleGET after phantom completes and receive informative response there
-        final Request phantomExchange = groupObservationsInfo.createPhantomExchange(this, multicastToken, exchange.advanced());
+        final Request phantomExchange = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange.advanced());
 
         // The phantom's observe relation will be established during response handling
         // via ObserveRelation.onResponse()

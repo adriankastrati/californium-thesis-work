@@ -151,8 +151,10 @@ public class ObserveLayer extends AbstractLayer {
 			LOGGER.info("Recognized phantom request for {} with token {}. Changed source to multicast: {}",
 					request.getOptions().getUriPathString(), request.getToken(), multicastAddress);
 		}
-		
+    LOGGER.debug("Calling upper().receiveRequest for exchange {} request {}", exchange, request);
 		upper().receiveRequest(exchange, request);
+    LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);
+
 	}
 
 	@Override

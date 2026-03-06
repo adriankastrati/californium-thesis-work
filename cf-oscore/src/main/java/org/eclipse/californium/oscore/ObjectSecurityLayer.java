@@ -388,8 +388,9 @@ public class ObjectSecurityLayer extends AbstractLayer {
 					request.setMaxResourceBodySize(maxPayloadSize);
 				}
 
-				super.receiveRequest(exchange, request);
-				return;
+LOGGER.debug("Calling upper().receiveRequest for exchange {} request {}", exchange, request);
+		super.receiveRequest(exchange, request);
+    LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);				return;
 			}
 			
 			byte[] requestOscoreOption;
@@ -410,7 +411,9 @@ public class ObjectSecurityLayer extends AbstractLayer {
 
 			exchange.setCryptographicContextID(requestOscoreOption);
 		}
+LOGGER.debug("Calling upper().receiveRequest for exchange {} request {}", exchange, request);
 		super.receiveRequest(exchange, request);
+    LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);
 	}
 
 	// DET_REQ

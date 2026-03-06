@@ -306,7 +306,9 @@ public class ReliabilityLayer extends AbstractLayer {
 		} else {
 			// Request is not a duplicate
 			exchange.setCurrentRequest(request);
-			upper().receiveRequest(exchange, request);
+			LOGGER.debug("Calling upper().receiveRequest for exchange {} request {}", exchange, request);
+      upper().receiveRequest(exchange, request);
+      LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);
 		}
 	}
 
