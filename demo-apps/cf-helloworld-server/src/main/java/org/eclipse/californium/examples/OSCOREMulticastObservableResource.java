@@ -68,7 +68,6 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     setObservable(true);
     setObserveType(null);
     this.isGroupObservable = groupObservable;
-    GroupObservationsInfo.getInstance().setSenderID(sid);
     LOGGER.info("MulticastObservableResource created - URI: {}, Path: {}, Observable: {}", uri, this.getPath(), isObservable());
   }
   

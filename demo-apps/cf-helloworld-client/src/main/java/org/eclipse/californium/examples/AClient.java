@@ -81,7 +81,7 @@ public class AClient {
 		        break;
 	      case "OSCORE-obs":
 		        System.out.println(uri+"OSCORE-obs");
-		        OSCOREMObserveClient.main(uri+"obs",1000, 2);
+		        OSCOREObserveClient.main(uri+"obs",1000, 2);
 		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
 		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
 		        break;
