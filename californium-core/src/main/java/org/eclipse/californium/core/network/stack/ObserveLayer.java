@@ -55,7 +55,6 @@ import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.EndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.util.StringUtil;
-import org.eclipse.californium.oscore.OscoreOptionDecoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -105,26 +104,7 @@ public class ObserveLayer extends AbstractLayer {
 		if (request.getOptions().hasOscore()) {
 			LOGGER.debug("has OSCORE");
 			// OSCORE-protected phantom request
-			try {
-				OscoreOptionDecoder decoder = new OscoreOptionDecoder(request.getBytes());
-				byte[] kid = decoder.getKid();
-				
-				// Case 1: Server's own phantom request (self-sent with OSCORE)
-				if (Arrays.equals(kid, groupObservationInfo.getSenderID())) {
-					InetSocketAddress sourceAddress = request.getSourceContext().getPeerAddress();
-					InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
-					LOGGER.debug("Phantom request check: source={}, local={}", 
-						sourceAddress, localAddress);
-					LOGGER.debug("Not Phantom OSCORE");
-					return sourceAddress.equals(localAddress);	
-				}
-				return false;
-			
-			} catch (Exception e) {
-				// OSCORE classes not available or other error - skip OSCORE processing
-				LOGGER.debug("OSCORE processing not available: {}", e.getMessage());
-				return false;
-			}
+		return false;
 		} else {
 			LOGGER.debug("Does not have OSCORE");
 			// NOT OSCORE-protected: source address and port must be the server's own

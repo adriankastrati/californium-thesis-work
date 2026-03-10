@@ -41,7 +41,7 @@ public class AClient {
 
 		
 		switch (args[0]) {
-			case "observe":
+			case "obs":
 				System.out.println("OBSERVE");
 				ObserveClient.main(uri+"obs", 20);
 				break;
@@ -52,7 +52,7 @@ public class AClient {
 			case "post":
 				System.out.println("POST");
 				content = Integer.toString((int)(Math.random() * 50 + 1));
-				POSTClient.main(uri, content);
+				POSTClient.main(uri+"obs", content);
 				break;
 			case "put":	
 				System.out.println("executing random put: " + rounds + "times");
@@ -75,9 +75,26 @@ public class AClient {
 	        break;
 	      case "OSCORE-mult":
 		        System.out.println(uri+"OSCORE-mult");
-		        OSCOREMulticastObserveClient.main(uri+"OSCORE-mult",1000);
+		        OSCOREMulticastObserveClient.main(uri+"OSCORE-mult",1000, 2);
 		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
 		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
+		        break;
+	      case "OSCORE-obs":
+		        System.out.println(uri+"OSCORE-obs");
+		        OSCOREMObserveClient.main(uri+"obs",1000, 2);
+		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
+		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
+		        break;
+	      case "OSCORE-obs-put":
+		        System.out.println(uri+"OSCORE-obs-put");
+	    	  	content = Integer.toString((int)(Math.random() * 50 + 1));
+		        OSCOREPutClient.main(uri+"obs",content);
+		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
+		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
+		        break;
+	      case "OSCORE-put-mult":
+	    	  	content = Integer.toString((int)(Math.random() * 50 + 1));
+				OSCOREPutClient.main(uri+"OSCORE-mult", content);
 		        break;
 				
 			case "mix":

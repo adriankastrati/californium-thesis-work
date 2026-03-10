@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.coap.CoAP;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.Request;
@@ -56,7 +57,7 @@ public class GroupObservationsInfo {
 	 * Pending clients waiting for informative response (5.03).
 	 * Key is resource URI, value is list of client exchanges.
 	 */
-	private Map<String, List<Exchange>> pendingClients;
+	private Map<String, List<CoapExchange>> pendingClients;
   
   private final int GRP_PORT = 61616;
 
@@ -64,7 +65,7 @@ public class GroupObservationsInfo {
 	 * Multicast address where notifications are sent.
 	 */
 	private volatile InetSocketAddress multicastAddress =  new InetSocketAddress(CoAP.MULTICAST_IPV4, GRP_PORT);// With custom multicast port
-
+  
   public InetSocketAddress getMulticastAddress(){
     return multicastAddress;
   }
@@ -188,9 +189,9 @@ public class GroupObservationsInfo {
 	 * Add a pending client exchange that is waiting for an informative response.
 	 * 
 	 * @param uriPath resource URI path
-	 * @param exchange the client's exchange
+	 * @param exchange the client'f exchange
 	 */
-	public void addPendingClient(String uriPath, Exchange exchange) {
+	public void addPendingClient(String uriPath, CoapExchange exchange) {
 		if (uriPath == null || exchange == null) {
 			return;
 		}
@@ -203,19 +204,19 @@ public class GroupObservationsInfo {
 	 * @param uriPath resource URI path
 	 * @return list of pending exchanges, or empty list
 	 */
-	public List<Exchange> removePendingClients(String uriPath) {
-		List<Exchange> clients = pendingClients.remove(uriPath);
+	public List<CoapExchange> removePendingClients(String uriPath) {
+		List<CoapExchange> clients = pendingClients.remove(uriPath);
 		return clients != null ? clients : new ArrayList<>();
 	}
 
 	/**
-	 * Get pending client exchanges for a resource (without removing).
+	 * Get pending client CoapExchanges for a resource (without removing).
 	 * 
 	 * @param uriPath resource URI path
-	 * @return list of pending exchanges, or empty list
+	 * @return list of pending CoapExchanges, or empty list
 	 */
-	public List<Exchange> getPendingClients(String uriPath) {
-		List<Exchange> clients = pendingClients.get(uriPath);
+	public List<CoapExchange> getPendingClients(String uriPath) {
+		List<CoapExchange> clients = pendingClients.get(uriPath);
 		return clients != null ? new ArrayList<>(clients) : new ArrayList<>();
 	}
 
@@ -263,7 +264,7 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 	}
 
   	/**
-	 * Creates a phantom request and exchange for multicast group observation.
+	 * Creates a phantom request and CoapExchange for multicast group observation.
 	 * 
 	 * The phantom request is a self-generated observe request that establishes
 	 * the group observation. Its source context is set to the multicast group
@@ -271,10 +272,10 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 	 * 
 	 * @param resource the resource to observe
 	 * @param multicastToken the token T allocated for multicast notifications
-	 * @param triggeringExchange the original client exchange that triggered this setup
-	 * @return the phantom exchange ready to be delivered
+	 * @param triggeringCoapExchange the original client CoapExchange that triggered this setup
+	 * @return the phantom CoapExchange ready to be delivered
 	 */
-	public Request createPhantomRequest(Resource resource, Token multicastToken, Exchange triggeringExchange) {
+	public Request createPhantomRequest(Resource resource, Token multicastToken, CoapExchange triggeringCoapExchange) {
 		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
 		
 		// Step 6: Build the phantom GET request
@@ -292,7 +293,7 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 		// Set message type to NON (multicast requires non-confirmable)
 		phantomRequest.setType(Type.NON);
 		
-		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
+		InetSocketAddress localAddress = triggeringCoapExchange.advanced().getEndpoint().getAddress();
 		
 		// Set source context to the server's own address.
 		// This allows ObserveLayer.isPhantomRequest() to recognize this as a
@@ -302,7 +303,7 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 		phantomRequest.setSourceContext(new AddressEndpointContext(localAddress));
 		phantomRequest.setMultiResponse(true);
 
-		// Step 7: Create the Exchange for server-side processing
+		// Step 7: Create the CoapExchange for server-side processing
 		// Use Origin.REMOTE because the server should see this as an incoming request
 		//Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
 

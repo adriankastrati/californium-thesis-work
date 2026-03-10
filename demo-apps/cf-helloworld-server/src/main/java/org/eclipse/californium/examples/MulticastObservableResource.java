@@ -89,7 +89,7 @@ public class MulticastObservableResource extends CoapResource {
         sendInformativeResponse(exchange, obsInfo);
         
       }else if (shouldGroupObservationStart()){
-        groupObservationsInfo.addPendingClient(this.getURI(), exchange.advanced());
+        groupObservationsInfo.addPendingClient(this.getURI(), exchange);
         setUpGroupObservation(exchange);
       }
     }else{
@@ -124,12 +124,12 @@ public class MulticastObservableResource extends CoapResource {
    */
   private void sendInformativeResponsesToClients(String uriPath, ObservationInfo obsInfo) {
     GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
-    List<Exchange> pendingClients = groupInfo.removePendingClients(uriPath);
+    List<CoapExchange> pendingClients = groupInfo.removePendingClients(uriPath);
     
     LOGGER.info("Sending informative responses to {} pending clients for resource {}", 
         pendingClients.size(), uriPath);
     
-    for (Exchange clientExchange : pendingClients) {
+    for (CoapExchange clientExchange : pendingClients) {
       Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
       response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
       
@@ -137,14 +137,14 @@ public class MulticastObservableResource extends CoapResource {
       response.setPayload(payload);
       
       // Set destination from original request source
-      response.setDestinationContext(clientExchange.getRequest().getSourceContext());
-      response.setToken(clientExchange.getRequest().getToken());
+      response.setDestinationContext(clientExchange.advanced().getRequest().getSourceContext());
+      response.setToken(clientExchange.advanced().getRequest().getToken());
       
       LOGGER.info("Sending informative response (5.03) to pending client {} with token {}. ObservationInfo: {}",
-          clientExchange.getRequest().getSourceContext().getPeerAddress(), 
-          clientExchange.getRequest().getToken(), obsInfo);
+          clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(), 
+          clientExchange.advanced().getRequest().getToken(), obsInfo);
       
-      clientExchange.sendResponse(response);
+      clientExchange.respond(response);
     }
   }
   
@@ -196,15 +196,17 @@ public class MulticastObservableResource extends CoapResource {
       // Start the group observation, this removes token from pendingMulticastNotificationTokens
       groupObservationsInfo.startGroupObservation(uriPath, observationInfo);
 
-      // Clear the setup-in-progress flag
+      // Clear the setup-in-progress flagsss
       groupObservationsInfo.setGroupObservationSetupInProgress(uriPath, false);
       
-      // Send informative response to all pending clients
-      sendInformativeResponsesToClients(uriPath, observationInfo);
+
 
       // Still respond, this will establish the observe relation internally
       // but the response will be suppressed by StackBottomAdapter
       exchange.respond(ResponseCode.CONTENT, this.content);
+      
+      // Send informative response to all pending clients
+      sendInformativeResponsesToClients(uriPath, observationInfo);
     }else
       {
         // This is a notification for an established phantom exchange
@@ -294,7 +296,7 @@ public class MulticastObservableResource extends CoapResource {
             // Don't return - let the phantom be delivered to the resource
           } else {
             // Regular client during setup - add as pending client for informative response
-            groupObservationsInfo.addPendingClient(resourceUri, exchange.advanced());
+            groupObservationsInfo.addPendingClient(resourceUri, exchange);
             LOGGER.debug("Group observation setup in progress for {}, added client as pending", resourceUri);
               LOGGER.debug("Returning early: setup in progress, added client as pending. Injection will not occur.");
             return;
@@ -318,7 +320,7 @@ public class MulticastObservableResource extends CoapResource {
         // Step 6-7: Create and deliver phantom request
         // Note: First client is NOT added to pending clients - it will continue
         // to handleGET after phantom completes and receive informative response there
-        final Request phantomExchange = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange.advanced());
+        final Request phantomExchange = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange);
 
         // The phantom's observe relation will be established during response handling
         // via ObserveRelation.onResponse()

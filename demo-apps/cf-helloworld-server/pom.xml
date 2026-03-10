@@ -33,6 +33,12 @@
 			<groupId>${project.groupId}</groupId>
 			<artifactId>cf-oscore</artifactId>
 		</dependency>
+		<dependency>
+            <groupId>net.i2p.crypto</groupId>
+            <artifactId>eddsa</artifactId>
+            <version>0.3.0</version>
+            <type>jar</type>
+    	</dependency>
 	</dependencies>
 
 	<build>

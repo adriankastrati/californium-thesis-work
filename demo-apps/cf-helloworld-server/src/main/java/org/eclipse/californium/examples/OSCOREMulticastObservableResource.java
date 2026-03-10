@@ -41,6 +41,7 @@ import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.CoapExchange;
+import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.Exchange;
 import org.eclipse.californium.core.network.Exchange.Origin;
 import org.eclipse.californium.core.observe.GroupObservationsInfo;
@@ -71,6 +72,8 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     LOGGER.info("MulticastObservableResource created - URI: {}, Path: {}, Observable: {}", uri, this.getPath(), isObservable());
   }
   
+
+
   
   @Override
   public void handleGET(CoapExchange exchange) {
@@ -89,7 +92,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
         sendInformativeResponse(exchange, obsInfo);
         
       }else if (shouldGroupObservationStart()){
-        groupObservationsInfo.addPendingClient(this.getURI(), exchange.advanced());
+        groupObservationsInfo.addPendingClient(this.getURI(), exchange);
         setUpGroupObservation(exchange);
       }
     }else{
@@ -111,9 +114,9 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     byte[] payload = obsInfo.toCbor();
     response.setPayload(payload);
     
-    LOGGER.info("Sending informative response (5.03) to client {} with token {}. ObservationInfo: {}",
+    LOGGER.debug("Sending informative response (5.03) to client {} with token {}. ObservationInfo: {}",
         exchange.getSourceSocketAddress(), exchange.advanced().getRequest().getToken(), obsInfo);
-    LOGGER.info("payload: {}",response.toString());
+    LOGGER.debug("payload: {}",response.toString());
     
     // Send the informative response
     exchange.respond(response);
@@ -124,27 +127,27 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
    */
   private void sendInformativeResponsesToClients(String uriPath, ObservationInfo obsInfo) {
     GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
-    List<Exchange> pendingClients = groupInfo.removePendingClients(uriPath);
+    List<CoapExchange> pendingClients = groupInfo.removePendingClients(uriPath);
     
     LOGGER.info("Sending informative responses to {} pending clients for resource {}", 
         pendingClients.size(), uriPath);
     
-    for (Exchange clientExchange : pendingClients) {
-      Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
+    for (CoapExchange clientExchange : pendingClients) {
+      Response response = Response.createResponse(clientExchange.advanced().getRequest(), ResponseCode.SERVICE_UNAVAILABLE);;
       response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
       
       byte[] payload = groupInfo.getGroupObservationInfo(uriPath).toCbor();
       response.setPayload(payload);
       
       // Set destination from original request source
-      response.setDestinationContext(clientExchange.getRequest().getSourceContext());
-      response.setToken(clientExchange.getRequest().getToken());
+      response.setDestinationContext(clientExchange.advanced().getRequest().getSourceContext());
+      response.setToken(clientExchange.advanced().getRequest().getToken());
       
       LOGGER.info("Sending informative response (5.03) to pending client {} with token {}. ObservationInfo: {}",
-          clientExchange.getRequest().getSourceContext().getPeerAddress(), 
-          clientExchange.getRequest().getToken(), obsInfo);
-      
-      clientExchange.sendResponse(response);
+          clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(), 
+          clientExchange.advanced().getRequest().getToken(), obsInfo);
+
+      clientExchange.respond(response);
     }
   }
   
@@ -253,21 +256,19 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 		
 		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
 		
-		// Set source context to MULTICAST ADDRESS 
-		InetSocketAddress multicastAddress = groupInfo.getMulticastAddress();
-		phantomRequest.setSourceContext(new AddressEndpointContext(multicastAddress));
-		LOGGER.debug("Phantom request source set to multicast address: {}", multicastAddress);
+		// Set source context to the server's own address.
+		// ObserveLayer.isPhantomRequest() detects phantom requests by checking
+		// that source == server's own address AND token is in pending map.
+		// The ObserveLayer will then change the source to the multicast address.
+		phantomRequest.setSourceContext(new AddressEndpointContext(localAddress));
+		LOGGER.debug("Phantom request source set to server's own address: {}", localAddress);
 
 		// Step 7: Create the Exchange for server-side processing
 		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
-		
-		Response response = Response.createResponse(phantomRequest, ResponseCode.CONTENT);
-		response.setPayload(this.content);
 
-		groupInfo.getGroupObservationInfo(resource.getURI()).setLastNotif(response);
-		
-		// Mark exchange as phantom request
-		phantomExchange.setPhantomRequest(true);
+		// Do NOT manually set phantomExchange.setPhantomRequest(true) here.
+		// The ObserveLayer will detect this as a phantom request when it
+		// traverses the stack and set the flag accordingly.
 		
 		// Set endpoint from triggering exchange if available
 		if (triggeringExchange.getEndpoint() != null) {
@@ -285,51 +286,55 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     String resourceUri = this.getURI();
     GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
 
-					LOGGER.debug("Group observation for {} starting", resourceUri);
+      LOGGER.debug("Group observation for {} starting", resourceUri);
 
-					// trigger phantom request setup
-					// Check if setup is already in progress 
-					synchronized (groupObservationsInfo) {
-						// If setup already in progress
-						if (groupObservationsInfo.isGroupObservationSetupInProgress(resourceUri)) {
-							// Phantom requests should pass through to establish observe relation
-							if (exchange.advanced().isPhantomRequest()) {
-								LOGGER.debug("Phantom request for {} - allowing delivery during setup", resourceUri);
-								// Don't return - let the phantom be delivered to the resource
-							} else {
-								// Regular client during setup - add as pending client for informative response
-								groupObservationsInfo.addPendingClient(resourceUri, exchange.advanced());
-								LOGGER.debug("Group observation setup in progress for {}, added client as pending", resourceUri);
-								return;
-							}
-						} else {
-							// We are the first thread - mark setup as in progress
-							groupObservationsInfo.setGroupObservationSetupInProgress(resourceUri, true);
-						}
-					}
+      synchronized (groupObservationsInfo) {
+        // If setup already in progress
+        if (groupObservationsInfo.isGroupObservationSetupInProgress(resourceUri)) {
+          // Phantom requests should pass through to establish observe relation
+          if (exchange.advanced().isPhantomRequest()) {
+            LOGGER.debug("Phantom request for {} - allowing delivery during setup", resourceUri);
+            // Don't return - let the phantom be delivered to the resource
+          } else {
+            // Regular client during setup - add as pending client for informative response
+            groupObservationsInfo.addPendingClient(resourceUri, exchange);
+            LOGGER.debug("Group observation setup in progress for {}, added client as pending", resourceUri);
+              LOGGER.debug("Returning early: setup in progress, added client as pending. Injection will not occur.");
+            return;
+          }
+        } else {
+          // We are the first thread - mark setup as in progress
+          groupObservationsInfo.setGroupObservationSetupInProgress(resourceUri, true);
+        }
+      }
 
-					// If this is a phantom request, it should just be delivered to the resource
-					// (don't create another phantom or add to pending)
-					if (exchange.advanced().isPhantomRequest()) {
-						return;
-					} else {
-						// Step 5: Allocate multicast token T
-						Token multicastToken = groupObservationsInfo.allocateMulticastToken(resourceUri);
-						LOGGER.debug("Allocated multicast token {} for group observation on {}", multicastToken, resourceUri);
+      // If this is a phantom request, it should just be delivered to the resource
+      // (don't create another phantom or add to pending)
+      if (exchange.advanced().isPhantomRequest()) {
+          LOGGER.debug("Returning early: detected phantom request after setup. Injection will not occur.");
+        return;
+      } else {
+        // Step 5: Allocate multicast token T
+        Token multicastToken = groupObservationsInfo.allocateMulticastToken(resourceUri);
+        LOGGER.debug("Allocated multicast token {} for group observation on {}", multicastToken, resourceUri);
 
-						// Step 6-7: Create and deliver phantom request
-						// Note: First client is NOT added to pending clients - it will continue
-						// to handleGET after phantom completes and receive informative response there
-            final Exchange phantomExchange = groupObservationsInfo.createPhantomExchange(this, multicastToken, exchange.advanced());					
-								
-					
-						// The phantom's observe relation will be established during response handling
-						// via ObserveRelation.onResponse()
-						LOGGER.debug("Delivering phantom request for {} with token {}", resourceUri, multicastToken);
-            serverMessageDeliverer.deliverRequest(phantomExchange);
+        // Step 6-7: Create and deliver phantom request
+        // Note: First client is NOT added to pending clients - it will continue
+        // to handleGET after phantom completes and receive informative response there
+        final Request phantomExchange = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange);
 
-						// After phantom is delivered, the group observation is established.
-						// Now continue to let the first client's request reach handleGET,
-				}
+        // The phantom's observe relation will be established during response handling
+        // via ObserveRelation.onResponse()
+        // Deliver phantom request through the CoAP stack so that
+        // ObserveLayer can detect it and set the phantom request flag
+        LOGGER.debug("Injecting phantom request into stack for {} with token {}", resourceUri, multicastToken);
+        CoapEndpoint endpoint = (CoapEndpoint) exchange.advanced().getEndpoint();
+        endpoint.sendRequest(phantomExchange);
+        
+        LOGGER.debug("Return from injection phantom request into stack for {} with token {}", resourceUri, multicastToken);
+
+        // After phantom is delivered, the group observation is established.
+        // Now continue to let the first client's request reach handleGET,
+      }
   }
 }

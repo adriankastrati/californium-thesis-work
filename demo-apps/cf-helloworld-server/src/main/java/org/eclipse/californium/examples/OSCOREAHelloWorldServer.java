@@ -17,27 +17,37 @@
  ******************************************************************************/
 package org.eclipse.californium.examples;
 
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
+import java.security.Provider;
 import java.security.Security;
 import java.util.Random;
-import java.net.Inet4Address;
-import java.security.Provider;
+
+import org.eclipse.californium.core.CoapExchange;
+import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.CoapServer;
 import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.coap.CoAP;
-import org.eclipse.californium.core.coap.MediaTypeRegistry;
-import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
+import org.eclipse.californium.core.coap.MediaTypeRegistry;
+import org.eclipse.californium.core.coap.Response;
+import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.Endpoint;
-import org.eclipse.californium.elements.config.Configuration;
-import org.eclipse.californium.core.CoapExchange;
+import org.eclipse.californium.core.observe.GroupObservationsInfo;
+import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.core.server.resources.Resource;
 import org.eclipse.californium.cose.AlgorithmID;
+import org.eclipse.californium.elements.config.Configuration;
+import org.eclipse.californium.elements.config.TcpConfig;
+import org.eclipse.californium.elements.config.UdpConfig;
+import org.eclipse.californium.elements.util.DaemonThreadFactory;
+import org.eclipse.californium.elements.util.ExecutorsUtil;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
+import org.eclipse.californium.elements.util.ProtocolScheduledExecutorService;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.eclipse.californium.examples.AHelloWorldServer.ObservableResource;
 import org.eclipse.californium.oscore.HashMapCtxDB;
@@ -47,14 +57,8 @@ import org.eclipse.californium.oscore.OSCoreResource;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.group.GroupCtx;
 import org.eclipse.californium.oscore.group.MultiKey;
-import net.i2p.crypto.eddsa.EdDSASecurityProvider;
 
-import org.eclipse.californium.core.observe.GroupObservationsInfo;
-import org.eclipse.californium.core.CoapResource;
-import org.eclipse.californium.core.config.CoapConfig;
-import org.eclipse.californium.core.server.resources.MyIpResource;
-import org.eclipse.californium.elements.config.TcpConfig;
-import org.eclipse.californium.elements.config.UdpConfig;
+import net.i2p.crypto.eddsa.EdDSASecurityProvider;
 
 
 public class OSCOREAHelloWorldServer extends CoapServer {
@@ -79,7 +83,10 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		loopbackBuilder.setInetSocketAddress(loopbackSocket);
 		loopbackBuilder.setConfiguration(config);
 		addEndpoint(loopbackBuilder.build());
-
+		final ProtocolScheduledExecutorService executorService = ExecutorsUtil
+				.newSingleThreadedProtocolExecutor(new DaemonThreadFactory(":CoapEndpoint")); //$NON-NLS-1$
+		this.setExecutor(executorService, isRunning());
+		
 		// Physical interface endpoint for multicast to work
 		Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
 		if (ipv4 != null) {
@@ -161,22 +168,28 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 	private final static byte[] gm_public_key_bytes = StringUtil.hex2ByteArray(
 			"A501781A636F6170733A2F2F6D79736974652E6578616D706C652E636F6D026C67726F75706D616E6167657203781A636F6170733A2F2F646F6D61696E2E6578616D706C652E6F7267041AAB9B154F08A101A4010103272006215820CDE3EFD3BC3F99C9C9EE210415C6CBA55061B5046E963B8A58C9143A61166472");
 
-	private static byte[] sid = new byte[] { 0x52 };
-	private static byte[] sid_public_key_bytes = StringUtil.hex2ByteArray(
+	private static byte[] server_id = new byte[] { 0x52 };
+	private static byte[] server_public_key_bytes = StringUtil.hex2ByteArray(
 			"A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A401010327200621582077EC358C1D344E41EE0E87B8383D23A2099ACD39BDF989CE45B52E887463389B");
-	private static byte[] sid_private_key_bytes = new byte[] { (byte) 0x85, 0x7E, (byte) 0xB6, 0x1D, 0x3F, 0x6D, 0x70,
+	private static byte[] server_private_key_bytes = new byte[] { (byte) 0x85, 0x7E, (byte) 0xB6, 0x1D, 0x3F, 0x6D, 0x70,
 			(byte) 0xA2, 0x78, (byte) 0xA3, 0x67, 0x40, (byte) 0xD1, 0x32, (byte) 0xC0, (byte) 0x99, (byte) 0xF6, 0x28,
 			(byte) 0x80, (byte) 0xED, 0x49, 0x7E, 0x27, (byte) 0xBD, (byte) 0xFD, 0x46, (byte) 0x85, (byte) 0xFA, 0x1A,
 			0x30, 0x4F, 0x26 };
-	private static MultiKey sid_private_key;
+	private static MultiKey server_private_key;
 
-	private final static byte[] rid1 = new byte[] { 0x25 };
-	private final static byte[] rid1_public_key_bytes = StringUtil.hex2ByteArray(
-			"A501781B636F6170733A2F2F746573746572312E6578616D706C652E636F6D02666D796E616D6503781A636F6170733A2F2F68656C6C6F312E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820069E912B83963ACC5941B63546867DEC106E5B9051F2EE14F3BC5CC961ACD43A");
-	private static MultiKey rid1_public_key;
+	
+	private final static byte[] sender_1_ID = new byte[] { 0x25 };
+	private static byte[] sender_1_public_key_bytes = StringUtil.hex2ByteArray(
+		    "A501781B636F6170733A2F2F746573746572312E6578616D706C652E636F6D02666D796E616D6503781A636F6170733A2F2F68656C6C6F312E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820069E912B83963ACC5941B63546867DEC106E5B9051F2EE14F3BC5CC961ACD43A");
+	private static MultiKey sender_1_public_key;
+
+	
+	private final static byte[] sender_2_ID = new byte[] { 0x77 };
+	private static byte[] sender_2_public_key_bytes = StringUtil.hex2ByteArray(
+		    "A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820105B8C6A8C88019BF0C354592934130BAA8007399CC2AC3BE845884613D5BA2E");
+	private static MultiKey sender_2_public_key;
 
 	private final static byte[] group_identifier = new byte[] { 0x44, 0x61, 0x6c }; // GID
-
 	/* --- OSCORE Security Context information --- */
 
 	private static Random random;
@@ -196,11 +209,13 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		Resource resource = server.getRoot();
 		Endpoint endpoint = server.getEndpoint(listenPort);
 		
-		resource.add(new HelloWorldResource(false));
-	    resource.add(new ObservableResource());
-	    resource.add(new OSCOREMulticastObservableResource(sid,"OSCORE-mult", true, server.getMessageDeliverer()));
-	    resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
+		//resource.add(new HelloWorldResource(true));
+	    
+		  resource.add(new ObservableResource());
+	    //resource.add(new OSCOREMulticastObservableResource(sid,"OSCORE-mult", true, server.getMessageDeliverer()));
+	    //resource.add(new MulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer()));
 	    server.start();
+	    
 	    
 		// Information about the receiver
 		System.out.println("==================");
@@ -214,21 +229,24 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		}
 		System.out.println("");
 		System.out.println("==================");
-		
+		try {
+			Thread.currentThread().join();
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 
 
     }
 
 	private void OSCORESetup() throws OSException {
-		// Install cryptographic providers
 		Provider EdDSA = new EdDSASecurityProvider();
 		Security.insertProviderAt(EdDSA, 1);
 
 		// Set sender & receiver keys for countersignatures
-		sid_private_key = new MultiKey(sid_public_key_bytes, sid_private_key_bytes);
-		rid1_public_key = new MultiKey(rid1_public_key_bytes);
-
-
+		server_private_key = new MultiKey(server_public_key_bytes, server_private_key_bytes);
+		sender_1_public_key = new MultiKey(sender_1_public_key_bytes);
+		sender_2_public_key = new MultiKey(sender_2_public_key_bytes);
 
 		// If OSCORE is being used set the context information
 		if (useOSCORE) {
@@ -237,10 +255,11 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			GroupCtx commonCtx = new GroupCtx(master_secret, master_salt, alg, kdf, group_identifier, algCountersign,
 					algGroupEnc, algKeyAgreement, gmPublicKey);
 
-			commonCtx.addSenderCtxCcs(sid, sid_private_key);
+			commonCtx.addSenderCtxCcs(server_id, server_private_key);
 
-			commonCtx.addRecipientCtxCcs(rid1, REPLAY_WINDOW, rid1_public_key);
-
+			commonCtx.addRecipientCtxCcs(sender_1_ID, REPLAY_WINDOW, sender_1_public_key);
+			commonCtx.addRecipientCtxCcs(sender_2_ID, REPLAY_WINDOW, sender_2_public_key);
+			
 			commonCtx.setResponsesIncludePartialIV(false);
 			commonCtx.setPairwiseModeResponses(true);
 
@@ -250,26 +269,21 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			OSCoreCoapStackFactory.useAsDefault(db);
 		}
 
-		// Initialize random number generator
-		random = new Random();
+
 		
 	}
 
 	private static class HelloWorldResource extends OSCoreResource {
 
-		private int id;
 		private int count = 0;
 
 		private HelloWorldResource(boolean hasOSCORE) {
 			// set resource identifier
-			super("get", hasOSCORE); // Changed
+			super("OSCORE-mult", hasOSCORE); // Changed
 
 			// set display name
 			getAttributes().setTitle("Hello-World Resource");
 
-			id = random.nextInt(1000);
-
-			System.out.println("coap receiver: " + id);
 		}
 
 		// Added for handling GET
@@ -279,7 +293,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		}
 
 		@Override
-		public void handlePOST(CoapExchange exchange) {
+		public void handlePUT(CoapExchange exchange) {
 
 			System.out.println("Receiving request #" + count);
 			count++;
@@ -317,6 +331,61 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 		}
 
+	}
+	
+
+	private static class ObservableResource extends OSCoreResource {
+
+		private volatile String content;
+		private final String originalContent;
+		
+		public ObservableResource() {
+
+			// set resource identifier
+			super("obs",true);
+			// set display name
+			getAttributes().setTitle("pub-sub Resource");
+			setObservable(true);
+			setObserveType(Type.NON);
+			System.out.println(this.getPath());
+
+		
+			this.content = "1";
+			this.originalContent = this.content;
+		}
+
+		
+		@Override
+		public void handleGET(CoapExchange exchange) {
+			// respond to the request
+			exchange.respond(ResponseCode.CONTENT, this.content);
+		}
+		
+		@Override
+		public void changed() {
+			super.changed();
+		}
+		 
+		@Override
+      public void removeObserveRelation(ObserveRelation relation) {
+        super.removeObserveRelation(relation);
+        System.out.println("Observe relation removed by client");
+		 }
+		 
+		@Override
+		public void handlePUT(CoapExchange exchange) {
+			String requestText = exchange.getRequestText();
+			String old = this.content;
+			
+			this.content = requestText;
+			String response_payload = old + " -> " + this.content;
+			
+			exchange.respond(ResponseCode.CHANGED, response_payload);
+			
+			changed();
+			
+		}
+		
 	}
 	
 }
