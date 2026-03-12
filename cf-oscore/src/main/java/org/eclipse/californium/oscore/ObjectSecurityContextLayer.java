@@ -123,8 +123,8 @@ public class ObjectSecurityContextLayer extends AbstractLayer {
 					LOGGER.error(ErrorDescriptions.URI_NULL);
 					throw new OSException(ErrorDescriptions.URI_NULL);
 				}
-
 				OSCoreCtx ctx = ctxDb.getContext(uri);
+
 				// if (ctx == null) {
 				// LOGGER.error(ErrorDescriptions.CTX_NULL);
 				// throw new OSException(ErrorDescriptions.CTX_NULL);

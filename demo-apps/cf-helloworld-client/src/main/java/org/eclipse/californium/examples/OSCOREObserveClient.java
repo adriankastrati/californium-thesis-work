@@ -10,6 +10,7 @@ import org.eclipse.californium.core.CoapHandler;
 import org.eclipse.californium.core.CoapObserveRelation;
 import org.eclipse.californium.core.CoapResponse;
 import org.eclipse.californium.core.Utils;
+import org.eclipse.californium.core.coap.CoAP.Code;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
@@ -65,36 +66,38 @@ public class OSCOREObserveClient {
 
 	private final static byte[] gm_public_key_bytes = StringUtil.hex2ByteArray(
 			"A501781A636F6170733A2F2F6D79736974652E6578616D706C652E636F6D026C67726F75706D616E6167657203781A636F6170733A2F2F646F6D61696E2E6578616D706C652E6F7267041AAB9B154F08A101A4010103272006215820CDE3EFD3BC3F99C9C9EE210415C6CBA55061B5046E963B8A58C9143A61166472");
-	
-	// server 1
-	private final static byte[] server_ID = new byte[] { 0x52 }; 
+	//Server
+	private static byte[] server_id = new byte[] { 0x52 };
 	private static byte[] server_public_key_bytes = StringUtil.hex2ByteArray(
-		    "A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A401010327200621582077EC358C1D344E41EE0E87B8383D23A2099ACD39BDF989CE45B52E887463389B");
-	private static MultiKey server_public_key = new MultiKey(server_public_key_bytes);
+			"A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A401010327200621582077EC358C1D344E41EE0E87B8383D23A2099ACD39BDF989CE45B52E887463389B");
+	private static byte[] server_private_key_bytes = new byte[] { (byte) 0x85, 0x7E, (byte) 0xB6, 0x1D, 0x3F, 0x6D, 0x70,
+			(byte) 0xA2, 0x78, (byte) 0xA3, 0x67, 0x40, (byte) 0xD1, 0x32, (byte) 0xC0, (byte) 0x99, (byte) 0xF6, 0x28,
+			(byte) 0x80, (byte) 0xED, 0x49, 0x7E, 0x27, (byte) 0xBD, (byte) 0xFD, 0x46, (byte) 0x85, (byte) 0xFA, 0x1A,
+			0x30, 0x4F, 0x26 };
+	private static MultiKey server_private_key;
+	private static MultiKey server_public_key;
 
 	
-	// Sender 1
+	//Sender 1
 	private final static byte[] sender_1_ID = new byte[] { 0x25 };
-
-	private final static byte[] sender_1_public_key_bytes = StringUtil.hex2ByteArray(
-			"A501781B636F6170733A2F2F746573746572312E6578616D706C652E636F6D02666D796E616D6503781A636F6170733A2F2F68656C6C6F312E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820069E912B83963ACC5941B63546867DEC106E5B9051F2EE14F3BC5CC961ACD43A");
-	private static MultiKey sender_1_private_key;
+	private static byte[] sender_1_public_key_bytes = StringUtil.hex2ByteArray(
+		    "A501781B636F6170733A2F2F746573746572312E6578616D706C652E636F6D02666D796E616D6503781A636F6170733A2F2F68656C6C6F312E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820069E912B83963ACC5941B63546867DEC106E5B9051F2EE14F3BC5CC961ACD43A");
 	private static byte[] sender_1_private_key_bytes = new byte[] { (byte) 0x64, (byte) 0x71, (byte) 0x4D, (byte) 0x41,
 			(byte) 0xA2, (byte) 0x40, (byte) 0xB6, (byte) 0x1D, (byte) 0x8D, (byte) 0x82, (byte) 0x35, (byte) 0x02,
 			(byte) 0x71, (byte) 0x7A, (byte) 0xB0, (byte) 0x88, (byte) 0xC9, (byte) 0xF4, (byte) 0xAF, (byte) 0x6F,
 			(byte) 0xC9, (byte) 0x84, (byte) 0x45, (byte) 0x53, (byte) 0xE4, (byte) 0xAD, (byte) 0x4C, (byte) 0x42,
-			(byte) 0xCC, (byte) 0x73, (byte) 0x52, (byte) 0x39 
-    };
-	
-	// Sender 2
-  private final static byte[] sender_2_ID = new byte[] { 0x77 };
-  private final static byte[] sender_2_public_key_bytes= StringUtil.hex2ByteArray(
-      "A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820105B8C6A8C88019BF0C354592934130BAA8007399CC2AC3BE845884613D5BA2E");
-  private static byte[] sender_2_private_key_bytes = new byte[] { 0x7B, (byte) 0xF6, 0x2F, 0x76, 0x7E, (byte) 0xD1, (byte) 0xCF, 0x4C,
-      0x60, (byte) 0x91, 0x1F, (byte) 0xC4, (byte) 0x9F, (byte) 0xDF, (byte) 0xCC, (byte) 0xB9,
-      (byte) 0xBD, 0x47, (byte) 0xCC, 0x7E, (byte) 0x9F, (byte) 0xAF, 0x41, (byte) 0xCB, 0x66, 0x36,
-      (byte) 0x9D, 0x5C, (byte) 0x85, 0x08, (byte) 0xB2, 0x39 
-    };
+			(byte) 0xCC, (byte) 0x73, (byte) 0x52, (byte) 0x39 };;
+	private static MultiKey sender_1_public_key;
+
+	//Sender 2
+	private final static byte[] sender_2_ID = new byte[] { 0x77 };
+	private static byte[] sender_2_public_key_bytes = StringUtil.hex2ByteArray(
+		    "A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820105B8C6A8C88019BF0C354592934130BAA8007399CC2AC3BE845884613D5BA2E");
+	private static byte[] sender_2_private_key_bytes = new byte[] { 0x7B, (byte) 0xF6, 0x2F, 0x76, 0x7E, (byte) 0xD1, (byte) 0xCF, 0x4C,
+			0x60, (byte) 0x91, 0x1F, (byte) 0xC4, (byte) 0x9F, (byte) 0xDF, (byte) 0xCC, (byte) 0xB9,
+			(byte) 0xBD, 0x47, (byte) 0xCC, 0x7E, (byte) 0x9F, (byte) 0xAF, 0x41, (byte) 0xCB, 0x66, 0x36,
+			(byte) 0x9D, 0x5C, (byte) 0x85, 0x08, (byte) 0xB2, 0x39 };;
+	private static MultiKey sender_2_public_key;
 
 
 
@@ -134,12 +137,14 @@ public class OSCOREObserveClient {
 		    }
 		    
 		    @Override
-		    public synchronized void onLoad(CoapResponse response) {
-		        System.out.println(Utils.prettyPrint(response));
-		        notificationCount++;
-		        notifyAll();
-
-		    }
+		    public void onLoad(CoapResponse response) {
+		        LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
+		        // Otherwise it's a normal notification payload
+		        synchronized (this) {
+		          notificationCount++;
+		          notifyAll();
+		        }
+		      }
 
 			@Override
 			public void onError() {
@@ -147,7 +152,22 @@ public class OSCOREObserveClient {
 			}
 		
 		}
+ /**
+  * Creates a phantom request to register an observe relation for receiving multicast notifications.
+  */
+ private static Request createPhantomRequest(Token multicastToken, String requestedURI, InetAddress groupAddr, int groupPort) {
+   Request phantomRequest = Request.newGet();
+   phantomRequest.setToken(multicastToken);
+   phantomRequest.setObserve();
+   phantomRequest.setDestinationContext(new AddressEndpointContext(new InetSocketAddress(groupAddr, groupPort)));
+   phantomRequest.setURI(requestedURI);
+   phantomRequest.setType(Type.NON);
+   phantomRequest.setShouldSend(false);
+   phantomRequest.getOptions().setOscore(Bytes.EMPTY);
 
+   LOGGER.debug("Created phantom request: {}", phantomRequest);
+   return phantomRequest;
+ }
 
     private static void setupOscore(String requestURI, int sender) throws OSException {
 	// Install cryptographic providers
@@ -164,6 +184,7 @@ public class OSCOREObserveClient {
 	            sender_id = sender_1_ID;
 	            sender_private_key = new MultiKey(sender_1_public_key_bytes, sender_1_private_key_bytes);
 	            break;
+	            
 	        case 2: // sender_2 identity (0x77)
 	            sender_id = sender_2_ID;
 	            sender_private_key = new MultiKey(sender_2_public_key_bytes, sender_2_private_key_bytes);
@@ -179,17 +200,29 @@ public class OSCOREObserveClient {
 						algGroupEnc, algKeyAgreement, gmPublicKey);
 
 				commonCtx.addSenderCtxCcs(sender_id, sender_private_key);
-				commonCtx.addRecipientCtxCcs(server_ID, REPLAY_WINDOW, server_public_key);
-
+				commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, new MultiKey(server_public_key_bytes));
 				db.addContext(requestURI, commonCtx);
-
+				System.out.println("registering common context for uri:" + requestURI);
 				OSCoreCoapStackFactory.useAsDefault(db);				
 
   }
   /**
    * Creates a phantom request to register an observe relation for receiving multicast notifications.
    */
+    private static Request createRequest(Code code, String resourceUri) {
+        
+        // resourceUri should be like "/oscore/observe2"
+        String serverUri = resourceUri;
+        System.out.println("Connecting to: " + serverUri);
+        
+        Request r = new Request(code);
+        r.setConfirmable(true);
+        r.setURI(serverUri);
+        r.getOptions().setOscore(Bytes.EMPTY);
+        r.setObserve();
 
+        return r;
+    }
 
   public static void main(String requestURI, int timeout, int sender) {
 	 try {
@@ -209,16 +242,19 @@ public class OSCOREObserveClient {
       client.setEndpoint(endpoint);
       client.setURI(requestURI);
       
-      Request multicastRequest = Request.newGet();
-      multicastRequest.setObserve();
-      multicastRequest.getOptions().setOscore(Bytes.EMPTY);
+      Request multicastRequest = createRequest(Code.GET, requestURI);
+    
       
       ObserveHandler handler = new ObserveHandler(4);
       CoapObserveRelation relation = client.observe(multicastRequest, handler);
       
       handler.waitForNotifications();
-      relation.reactiveCancel();
-      client.shutdown();
+		
+      // Deregister observe
+      Request deregisterRequest = createRequest(Code.GET, requestURI);
+      deregisterRequest.getOptions().setObserve(1); // Observe=1 means cancel
+      deregisterRequest.send();
+      
         if (multicastClient != null) multicastClient.shutdown();
   } catch (Exception e) {
     LOGGER.error("Error in multicast observe client", e);

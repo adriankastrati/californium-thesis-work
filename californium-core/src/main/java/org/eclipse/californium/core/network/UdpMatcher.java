@@ -131,6 +131,7 @@ public final class UdpMatcher extends BaseMatcher {
 
 		if (request.isObserve() && 0 == exchange.getFailedTransmissionCount()) {
 			if (exchangeStore.assignMessageId(request) != Message.NONE) {
+        
 				registerObserve(request);
 			} else {
 				LOGGER.debug("message IDs exhausted, could not register outbound observe request for tracking");

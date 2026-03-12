@@ -36,11 +36,12 @@ import java.net.InetSocketAddress;
 import java.util.List;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
+import org.eclipse.californium.core.CoapExchange;
+import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
-import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.Exchange;
 import org.eclipse.californium.core.network.Exchange.Origin;
@@ -50,6 +51,7 @@ import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.core.server.MessageDeliverer;
 import org.eclipse.californium.core.server.resources.Resource;
 import org.eclipse.californium.elements.AddressEndpointContext;
+import org.eclipse.californium.elements.util.Bytes;
 import org.eclipse.californium.oscore.OSCoreResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,9 +61,9 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
   private volatile String content = "initial";
   private final boolean isGroupObservable;
   private final MessageDeliverer serverMessageDeliverer;
-  public OSCOREMulticastObservableResource(byte[] sid, String uri, boolean groupObservable, MessageDeliverer serverMessageDeliverer) {
+  public OSCOREMulticastObservableResource(String uri, boolean groupObservable, MessageDeliverer serverMessageDeliverer) {
     // set resource identifier
-    super(uri,true);
+    super(uri, true);
     this.serverMessageDeliverer = serverMessageDeliverer;
     // set display name
     getAttributes().setTitle("Multicast Observable Resource");
@@ -70,8 +72,6 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     this.isGroupObservable = groupObservable;
     LOGGER.info("MulticastObservableResource created - URI: {}, Path: {}, Observable: {}", uri, this.getPath(), isObservable());
   }
-  
-
 
   
   @Override
@@ -132,7 +132,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
         pendingClients.size(), uriPath);
     
     for (CoapExchange clientExchange : pendingClients) {
-      Response response = Response.createResponse(clientExchange.advanced().getRequest(), ResponseCode.SERVICE_UNAVAILABLE);;
+      Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
       response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
       
       byte[] payload = groupInfo.getGroupObservationInfo(uriPath).toCbor();
@@ -145,7 +145,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       LOGGER.info("Sending informative response (5.03) to pending client {} with token {}. ObservationInfo: {}",
           clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(), 
           clientExchange.advanced().getRequest().getToken(), obsInfo);
-
+      
       clientExchange.respond(response);
     }
   }
@@ -198,15 +198,15 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       // Start the group observation, this removes token from pendingMulticastNotificationTokens
       groupObservationsInfo.startGroupObservation(uriPath, observationInfo);
 
-      // Clear the setup-in-progress flag
+      // Clear the setup-in-progress flagsss
       groupObservationsInfo.setGroupObservationSetupInProgress(uriPath, false);
-      
-      // Send informative response to all pending clients
-      sendInformativeResponsesToClients(uriPath, observationInfo);
 
       // Still respond, this will establish the observe relation internally
       // but the response will be suppressed by StackBottomAdapter
       exchange.respond(ResponseCode.CONTENT, this.content);
+      
+      // Send informative response to all pending clients
+      sendInformativeResponsesToClients(uriPath, observationInfo);
     }else
       {
         // This is a notification for an established phantom exchange
@@ -221,65 +221,6 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
   private boolean shouldGroupObservationStart(){
     return this.getObserverCount() >= 0;
   }
-
-
-	/**
-	 * Creates a phantom request and exchange for multicast group observation.
-	 * <p>
-	 * The phantom request is a self-generated observe request that establishes
-	 * the group observation. Its source context is set to the multicast group
-	 * address so that responses (notifications) will be sent to the multicast group.
-	 * 
-	 * @param resource the resource to observe
-	 * @param multicastToken the token T allocated for multicast notifications
-	 * @param triggeringExchange the original client exchange that triggered this setup
-	 * @return the phantom exchange ready to be delivered
-	 */
-	protected Exchange createPhantomExchange(Resource resource, Token multicastToken, Exchange triggeringExchange) {
-		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
-		
-		// Step 6: Build the phantom GET request
-		Request phantomRequest = Request.newGet();
-		
-		// Set the multicast token T
-		phantomRequest.setToken(multicastToken);
-		
-		// Set Observe=0 (register for observation)
-		phantomRequest.setObserve();
-		
-		// Set URI path to the resource
-		phantomRequest.getOptions().setUriPath(resource.getURI());
-		
-		// Set message type to NON (multicast requires non-confirmable)
-		phantomRequest.setType(Type.NON);
-		
-		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
-		
-		// Set source context to the server's own address.
-		// ObserveLayer.isPhantomRequest() detects phantom requests by checking
-		// that source == server's own address AND token is in pending map.
-		// The ObserveLayer will then change the source to the multicast address.
-		phantomRequest.setSourceContext(new AddressEndpointContext(localAddress));
-		LOGGER.debug("Phantom request source set to server's own address: {}", localAddress);
-
-		// Step 7: Create the Exchange for server-side processing
-		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
-
-		// Do NOT manually set phantomExchange.setPhantomRequest(true) here.
-		// The ObserveLayer will detect this as a phantom request when it
-		// traverses the stack and set the flag accordingly.
-		
-		// Set endpoint from triggering exchange if available
-		if (triggeringExchange.getEndpoint() != null) {
-			phantomExchange.setEndpoint(triggeringExchange.getEndpoint());
-		}
-		
-		LOGGER.debug("Created phantom exchange for resource {} with multicast token {}", 
-				resource.getURI(), multicastToken);
-		
-		return phantomExchange;
-	}
-
  
   private void setUpGroupObservation(CoapExchange exchange){
     String resourceUri = this.getURI();
@@ -320,15 +261,15 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
         // Step 6-7: Create and deliver phantom request
         // Note: First client is NOT added to pending clients - it will continue
         // to handleGET after phantom completes and receive informative response there
-        final Request phantomExchange = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange);
-
+        final Request phantomRequest = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange, true);
+        
         // The phantom's observe relation will be established during response handling
         // via ObserveRelation.onResponse()
         // Deliver phantom request through the CoAP stack so that
         // ObserveLayer can detect it and set the phantom request flag
         LOGGER.debug("Injecting phantom request into stack for {} with token {}", resourceUri, multicastToken);
         CoapEndpoint endpoint = (CoapEndpoint) exchange.advanced().getEndpoint();
-        endpoint.sendRequest(phantomExchange);
+        endpoint.sendRequest(phantomRequest);
         
         LOGGER.debug("Return from injection phantom request into stack for {} with token {}", resourceUri, multicastToken);
 

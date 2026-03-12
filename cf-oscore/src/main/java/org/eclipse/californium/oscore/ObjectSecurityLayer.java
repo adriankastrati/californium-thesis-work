@@ -31,11 +31,13 @@ import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
 
+import java.net.InetSocketAddress;
 import java.util.Arrays;
 
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.network.Exchange;
 import org.eclipse.californium.core.network.stack.AbstractLayer;
+import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.elements.util.Bytes;
 import org.eclipse.californium.oscore.ContextRederivation.PHASE;
 import org.eclipse.californium.oscore.group.GroupDeterministicRecipientCtx;
@@ -317,7 +319,11 @@ public class ObjectSecurityLayer extends AbstractLayer {
 					}
 					response.getOptions().setRequestHash(requestHashOption);
 				}
-
+				if(exchange.isPhantomRequest()) {
+					exchange.setSuppressResponse(true);
+					GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
+					
+				}
 				Response preparedResponse = prepareSend(ctxDb, response, ctx, addPartialIV, outerBlockwise,
 						requestSequenceNumber, requestOption);
 
@@ -354,11 +360,65 @@ public class ObjectSecurityLayer extends AbstractLayer {
 	public void sendEmptyMessage(Exchange exchange, EmptyMessage message) {
 		super.sendEmptyMessage(exchange, message);
 	}
-
+	
+	private boolean isPhantomRequest(final Exchange exchange) {
+		LOGGER.debug("Checking if phantom Request");
+		Request request = exchange.getCurrentRequest();
+		Token token = request.getToken();
+		String uriPath = request.getOptions().getUriPathString();
+		
+		GroupObservationsInfo groupObservationInfo = GroupObservationsInfo.getInstance();
+		
+		// Condition 1: Does the request have the Observe option with value 0?
+		if (request.getOptions().getObserve() == null || request.getOptions().getObserve() != 0) {
+			return false;
+		}
+		
+		// Condition 2: Is token value currently in pendingMulticastNotifTokens for the URI-path?
+		if (!groupObservationInfo.isTokenPendingProcess(token)) {
+			return false;
+		}
+		
+		try {
+		// Condition 3: Check based on OSCORE protection
+		
+		// Retrieve the OSCORE context associated with this RID and ID
+		// Context
+		OscoreOptionDecoder optionDecoder = new OscoreOptionDecoder(request.getOptions().getOscore());
+		byte[] kid = optionDecoder.getKid();
+		byte[] IDContext = optionDecoder.getIdContext();
+		byte[] sender_id = groupObservationInfo.getSender_ID();
+		//kid is sender ID of server, not oscore-protected, server's source and port
+		if (request.getOptions().hasOscore() && Arrays.equals(kid, sender_id)) {
+		    exchange.setProtectedRequest(request.getBytes());
+		    return true;
+		}else {
+			return false;
+		}
+	} catch (CoapOSException e) {
+		// TODO Auto-generated catch block
+		e.printStackTrace();
+		return false;
+	}
+		
+	}
+	
 	@Override
 	public void receiveRequest(Exchange exchange, Request request) {
 		if (isProtected(request)) {
+			
+			if (isPhantomRequest(exchange)) {
+				exchange.setProtectedRequest(request.getBytes());
+				
+				
+				LOGGER.info("Recognized phantom request for {} with token {}",
+						request.getOptions().getUriPathString(), request.getToken());
+			}else {
+				LOGGER.info("Not phantom request for {} with token {}",
+						request.getOptions().getUriPathString(), request.getToken());
 
+			}
+			
 			OSCoreCtx ctx = null;
 			try {
 				// Retrieve the OSCORE context associated with this RID and ID
@@ -388,9 +448,9 @@ public class ObjectSecurityLayer extends AbstractLayer {
 					request.setMaxResourceBodySize(maxPayloadSize);
 				}
 
-LOGGER.debug("Calling upper().receiveRequest for exchange {} request {}", exchange, request);
-		super.receiveRequest(exchange, request);
-    LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);				return;
+				LOGGER.debug("Calling upper().receiveRequest for protected exchange {} request {}", exchange, request);
+				super.receiveRequest(exchange, request);
+				LOGGER.debug("upper().receiveRequest completed for protected exchange {} request {}", exchange, request);				return;
 			}
 			
 			byte[] requestOscoreOption;

@@ -775,6 +775,7 @@ public class CoapEndpoint implements Endpoint, Executor {
 
 				@Override
 				public void run() {
+          LOGGER.debug("Sending response");
 					coapstack.sendResponse(exchange, response);
 				}
 			});

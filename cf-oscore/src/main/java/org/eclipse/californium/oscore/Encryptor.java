@@ -112,7 +112,7 @@ public abstract class Encryptor {
 			nonceLength = algIvLen;
 			commonIV = Arrays.copyOfRange(ctx.getCommonIV(), 0, nonceLength);
 		}
-		System.out.println("Encryption nonce length: " + nonceLength);
+		LOGGER.debug("Encryption nonce length: {}", nonceLength);
 
 		try {
 			byte[] key = ctx.getSenderKey();
@@ -189,11 +189,11 @@ public abstract class Encryptor {
 
 			}
 
-			System.out.println("Encrypting outgoing " + message.getClass().getSimpleName());
-			System.out.println("Plaintext " + Utils.toHexString(enc.GetContent()));
-			System.out.println("PartialIV " + Utils.toHexString(partialIV));
-			System.out.println("Nonce " + Utils.toHexString(nonce));
-			System.out.println("Common IV " + Utils.toHexString(ctx.getCommonIV()));
+			LOGGER.debug("Encrypting outgoing {}", message.getClass().getSimpleName());
+			LOGGER.debug("Plaintext {}", Utils.toHexString(enc.GetContent()));
+			LOGGER.debug("PartialIV {}", Utils.toHexString(partialIV));
+			LOGGER.debug("Nonce {}", Utils.toHexString(nonce));
+			LOGGER.debug("Common IV {}", Utils.toHexString(ctx.getCommonIV()));
 
 			// Handle Group OSCORE messages
 			if (ctx.isGroupContext()) {
@@ -209,8 +209,7 @@ public abstract class Encryptor {
 				LOGGER.debug("Encrypting outgoing " + message.getClass().getSimpleName()
 						+ " using Group OSCORE. Pairwise mode: " + !groupModeMessage);
 				
-				System.out.println("Encrypting outgoing " + message.getClass().getSimpleName()
-						+ " using Group OSCORE. Pairwise mode: " + !groupModeMessage);
+				LOGGER.debug("Encrypting outgoing {} using Group OSCORE. Pairwise mode: {}", message.getClass().getSimpleName(), !groupModeMessage);
 				
 				// DET_REQ
 				// If it is a deterministic request, switch to the Deterministic Sender Context
@@ -246,11 +245,11 @@ public abstract class Encryptor {
 					}
 					
 					// Debugging
-					System.out.println("\n");
-					System.out.println("Hash input - Sender Key Deterministic Client: " + Utils.toHexString(detSenderKey));
-					System.out.println("Hash input - Original aad : " + Utils.toHexString(aad));
-					System.out.println("Hash input - COSE Plaintext : " + Utils.toHexString(enc.GetContent()));
-					System.out.println("Deterministic Request - Hash value: " + Utils.toHexString(hash) + "\n");
+					LOGGER.debug("\n");
+					LOGGER.debug("Hash input - Sender Key Deterministic Client: {}", Utils.toHexString(detSenderKey));
+					LOGGER.debug("Hash input - Original aad {}", Utils.toHexString(aad));
+					LOGGER.debug("Hash input - COSE Plaintext {}",  Utils.toHexString(enc.GetContent()));
+					LOGGER.debug("Deterministic Request - Hash value: {}", Utils.toHexString(hash) + "\n");
 					
 					message.getOptions().setRequestHash(hash);
 
@@ -266,11 +265,9 @@ public abstract class Encryptor {
 					aad = OSSerializer.updateAADForDeterministicRequest(hash, aad);
 				}
 				
-				System.out.println("Encrypting outgoing " + message.getClass().getSimpleName() + " with AAD "
-						+ Utils.toHexString(aad));
+				LOGGER.debug("Encrypting outgoing {} with AAD {}", message.getClass().getSimpleName(), Utils.toHexString(aad));
 
-				System.out.println("Encrypting outgoing " + message.getClass().getSimpleName() + " with nonce "
-						+ Utils.toHexString(nonce));
+				LOGGER.debug("Encrypting outgoing {} with nonce {}", message.getClass().getSimpleName(), Utils.toHexString(nonce));
 
 				// If this is a pairwise response/request use the pairwise key
 				if (pairwiseResponse) {
@@ -297,10 +294,10 @@ public abstract class Encryptor {
 						try {
 							key = GroupCtx.extractExpand(detSenderKey, hash, info.EncodeToBytes(), keyLength);
 						} catch (InvalidKeyException e) {
-							LOGGER.error("Error when deriving the deterministic encryption key: " + e.getMessage());
+							LOGGER.error("Error when deriving the deterministic encryption key: {}", e.getMessage());
 							throw new OSException(e.getMessage());
 						} catch (NoSuchAlgorithmException e) {
-							LOGGER.error("Error when deriving the deterministic encryption key: " + e.getMessage());
+							LOGGER.error("Error when deriving the deterministic encryption key: {}", e.getMessage());
 							throw new OSException(e.getMessage());
 						}
 
@@ -322,7 +319,7 @@ public abstract class Encryptor {
 
 			// DET_REQ
 			if (isRequest) {
-				System.out.println("\nDeterministic request: " + isDetReq + "\n");
+				LOGGER.debug("\nDeterministic request: {}", isDetReq);
 			}
 
 			// Warning: Using algos without integrity in pairwise mode
@@ -339,11 +336,11 @@ public abstract class Encryptor {
 
 			// DET_REQ
 			// Moved down here
-			System.out.println("Encrypting outgoing " + message.getClass().getSimpleName());
-			System.out.println("Key " + Utils.toHexString(key));
-			System.out.println("PartialIV " + Utils.toHexString(partialIV));
-			System.out.println("Nonce " + Utils.toHexString(nonce));
-			System.out.println("AAD " + Utils.toHexString(aad));
+			LOGGER.debug("Encrypting outgoing {}",message.getClass().getSimpleName());
+			LOGGER.debug("Key {}",Utils.toHexString(key));
+			LOGGER.debug("PartialIV {}",Utils.toHexString(partialIV));
+			LOGGER.debug("Nonce {}",Utils.toHexString(nonce));
+			LOGGER.debug("AAD {}",Utils.toHexString(aad));
 			
 			enc.setExternal(aad);
 			
@@ -497,8 +494,7 @@ public abstract class Encryptor {
 		byte[] signAad = aad;
 		sign.setExternal(signAad); // Set external AAD for signing
 
-		System.out.println("Signing outgoing " + message.getClass().getSimpleName() + " with sign AAD "
-				+ Utils.toHexString(signAad));
+		LOGGER.debug("Signing outgoing {} with sign AAD {}", message.getClass().getSimpleName(), Utils.toHexString(signAad));
 
 	}
 
@@ -525,8 +521,8 @@ public abstract class Encryptor {
 
 		byte[] fullPayload = os.toByteArray();
 
-		System.out.println("countersignBytes len: " + countersignBytes.length);
-		System.out.println("ciphertext len: " + ciphertext.length);
+		LOGGER.debug("countersignBytes len: {}",countersignBytes.length);
+		LOGGER.debug("ciphertext len: {}",ciphertext.length);
 		enc.setEncryptedContent(fullPayload);
 	}
 
@@ -550,7 +546,7 @@ public abstract class Encryptor {
 		info.Add(isRequest);
 		info.Add(keyLength);
 
-		System.out.println("Info: " + StringUtil.byteArray2Hex(info.EncodeToBytes()));
+		LOGGER.debug("Info: " + StringUtil.byteArray2Hex(info.EncodeToBytes()));
 		
 		byte[] signatureEncryptionKey = ctx.getCommonCtx().getSignatureEncryptionKey();
 		byte[] keystream = null;
@@ -561,7 +557,7 @@ public abstract class Encryptor {
 			System.err.println(e.getMessage());
 		}
 		
-		System.out.println("Partial IV for keystream: " + StringUtil.byteArray2Hex(partialIV));
+		LOGGER.debug("Partial IV for keystream: {}", StringUtil.byteArray2Hex(partialIV));
 
 		// Now actually encrypt the signature
 		byte[] countersignBytes = enc.getUnprotectedAttributes().get(HeaderKeys.CounterSignature0.AsCBOR())
@@ -572,16 +568,16 @@ public abstract class Encryptor {
 			encryptedCountersign[i] = (byte) (countersignBytes[i] ^ keystream[i]);
 		}
 		
-		System.out.println("===");
-		System.out.println("E Signature before encryption: " + Utils.toHexString(countersignBytes));
-		System.out.println("E Signature after encryption: " + Utils.toHexString(encryptedCountersign));
-		System.out.println("E Signature keystream: " + Utils.toHexString(keystream));
-		System.out.println("E signatureEncryptionKey: " + Utils.toHexString(signatureEncryptionKey));
-		System.out.println("E partialIV: " + Utils.toHexString(partialIV));
-		System.out.println("E kid: " + Utils.toHexString(kid));
-		System.out.println("E IdContext: " + Utils.toHexString(ctx.getIdContext()));
-		System.out.println("E isRequest: " + isRequest);
-		System.out.println("===");
+		LOGGER.debug("===");
+		LOGGER.debug("E Signature before encryption: {}", Utils.toHexString(countersignBytes));
+		LOGGER.debug("E Signature after encryption: {}", Utils.toHexString(encryptedCountersign));
+		LOGGER.debug("E Signature keystream: {}", Utils.toHexString(keystream));
+		LOGGER.debug("E signatureEncryptionKey: {}", Utils.toHexString(signatureEncryptionKey));
+		LOGGER.debug("E partialIV: {}", Utils.toHexString(partialIV));
+		LOGGER.debug("E kid: {}",Utils.toHexString(kid));
+		LOGGER.debug("E IdContext: {}",Utils.toHexString(ctx.getIdContext()));
+		LOGGER.debug("E isRequest: {}", isRequest);
+		LOGGER.debug("===");
 
 		// Replace the signature in the Encrypt0 object
 		enc.getUnprotectedAttributes().set(HeaderKeys.CounterSignature0.AsCBOR(),

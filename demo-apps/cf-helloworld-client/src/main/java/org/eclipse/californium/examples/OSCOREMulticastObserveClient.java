@@ -5,11 +5,15 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
+import java.security.Provider;
+import java.security.Security;
+
 import org.eclipse.californium.core.CoapClient;
 import org.eclipse.californium.core.CoapHandler;
 import org.eclipse.californium.core.CoapObserveRelation;
 import org.eclipse.californium.core.CoapResponse;
 import org.eclipse.californium.core.Utils;
+import org.eclipse.californium.core.coap.CoAP.Code;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
@@ -17,28 +21,24 @@ import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.observe.ObservationInfo;
+import org.eclipse.californium.cose.AlgorithmID;
 import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.UDPConnector;
 import org.eclipse.californium.elements.UdpMulticastConnector;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.UdpConfig;
-import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
-import java.security.Provider;
-import java.security.Security;
-
-import org.eclipse.californium.cose.AlgorithmID;
 import org.eclipse.californium.elements.util.Bytes;
+import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.eclipse.californium.oscore.HashMapCtxDB;
 import org.eclipse.californium.oscore.OSCoreCoapStackFactory;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.group.GroupCtx;
 import org.eclipse.californium.oscore.group.MultiKey;
-
-import net.i2p.crypto.eddsa.EdDSASecurityProvider;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import net.i2p.crypto.eddsa.EdDSASecurityProvider;
 
 public class OSCOREMulticastObserveClient {
 	/* --- OSCORE Security Context information (sender) --- */
@@ -67,18 +67,14 @@ public class OSCOREMulticastObserveClient {
 			"A501781A636F6170733A2F2F6D79736974652E6578616D706C652E636F6D026C67726F75706D616E6167657203781A636F6170733A2F2F646F6D61696E2E6578616D706C652E6F7267041AAB9B154F08A101A4010103272006215820CDE3EFD3BC3F99C9C9EE210415C6CBA55061B5046E963B8A58C9143A61166472");
 	
 	// server 1
-	private final static byte[] server_ID = new byte[] { 0x52 }; 
+	private static byte[] server_id = new byte[] { 0x52 };
 	private static byte[] server_public_key_bytes = StringUtil.hex2ByteArray(
-		    "A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A401010327200621582077EC358C1D344E41EE0E87B8383D23A2099ACD39BDF989CE45B52E887463389B");
-	private static MultiKey server_public_key = new MultiKey(server_public_key_bytes);
-
-	
+			"A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A401010327200621582077EC358C1D344E41EE0E87B8383D23A2099ACD39BDF989CE45B52E887463389B");
 	// Sender 1
 	private final static byte[] sender_1_ID = new byte[] { 0x25 };
 
 	private final static byte[] sender_1_public_key_bytes = StringUtil.hex2ByteArray(
 			"A501781B636F6170733A2F2F746573746572312E6578616D706C652E636F6D02666D796E616D6503781A636F6170733A2F2F68656C6C6F312E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820069E912B83963ACC5941B63546867DEC106E5B9051F2EE14F3BC5CC961ACD43A");
-	private static MultiKey sender_1_private_key;
 	private static byte[] sender_1_private_key_bytes = new byte[] { (byte) 0x64, (byte) 0x71, (byte) 0x4D, (byte) 0x41,
 			(byte) 0xA2, (byte) 0x40, (byte) 0xB6, (byte) 0x1D, (byte) 0x8D, (byte) 0x82, (byte) 0x35, (byte) 0x02,
 			(byte) 0x71, (byte) 0x7A, (byte) 0xB0, (byte) 0x88, (byte) 0xC9, (byte) 0xF4, (byte) 0xAF, (byte) 0x6F,
@@ -119,7 +115,7 @@ public class OSCOREMulticastObserveClient {
     private final int targetCount;
 
     public MulticastObserveHandler(int targetCount) {
-      this.targetCount = 4;
+      this.targetCount = targetCount;
     }
 
     public synchronized void waitForNotifications() {
@@ -127,7 +123,6 @@ public class OSCOREMulticastObserveClient {
         try {
           this.wait();
         } catch (InterruptedException e) {
-            e.printStackTrace();
           Thread.currentThread().interrupt();
           return;
         }
@@ -163,7 +158,7 @@ public class OSCOREMulticastObserveClient {
             Request phantomRequest = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
             LOGGER.info("Created PhantomRequest with token: {}", multicastToken);
             
-            CoapObserveRelation phantomRelation = multicastClient.observe(phantomRequest, this);
+            multicastClient.observe(phantomRequest, this);
             LOGGER.info("Registered phantom observe relation.");
 
             receiverReady = true;
@@ -178,11 +173,10 @@ public class OSCOREMulticastObserveClient {
       }
 
       // Otherwise it's a normal notification payload
-      else{
+      synchronized (this) {
         notificationCount++;
         notifyAll();
       }
-      
     }
 
     @Override
@@ -190,15 +184,13 @@ public class OSCOREMulticastObserveClient {
       LOGGER.error("Error receiving multicast notification");
     }
   }
-
-
-    private static void setupOscore(String requestURI, int sender) throws OSException {
+  private static void setupOscore(int sender) throws OSException {
 	// Install cryptographic providers
 			Provider EdDSA = new EdDSASecurityProvider();
 			Security.insertProviderAt(EdDSA, 1);
 			// InstallCryptoProviders.generateCounterSignKey();
 
-      	    // Select client identity based on sender parameter
+    	    // Select client identity based on sender parameter
 	    byte[] sender_id;
 	    MultiKey sender_private_key;
 
@@ -222,12 +214,25 @@ public class OSCOREMulticastObserveClient {
 						algGroupEnc, algKeyAgreement, gmPublicKey);
 
 				commonCtx.addSenderCtxCcs(sender_id, sender_private_key);
-				commonCtx.addRecipientCtxCcs(server_ID, REPLAY_WINDOW, server_public_key);
-
-				db.addContext(requestURI, commonCtx);
+				commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, new MultiKey(server_public_key_bytes));
+				db.addContext("coap://127.0.0.1/OSCORE-mult", commonCtx);
 
 				OSCoreCoapStackFactory.useAsDefault(db);				
 
+}
+  private static Request createRequest(Code code, String resourceUri) {
+      
+      // resourceUri should be like "/oscore/observe2"
+      String serverUri = resourceUri;
+      System.out.println("Connecting to: " + serverUri);
+      
+      Request r = new Request(code);
+      r.setConfirmable(true);
+      r.setURI(serverUri);
+      r.getOptions().setOscore(Bytes.EMPTY);
+      r.setObserve();
+
+      return r;
   }
   /**
    * Creates a phantom request to register an observe relation for receiving multicast notifications.
@@ -240,6 +245,8 @@ public class OSCOREMulticastObserveClient {
     phantomRequest.setURI(requestedURI);
     phantomRequest.setType(Type.NON);
     phantomRequest.setShouldSend(false);
+    phantomRequest.getOptions().setOscore(Bytes.EMPTY);
+
     LOGGER.debug("Created phantom request: {}", phantomRequest);
     return phantomRequest;
   }
@@ -300,38 +307,39 @@ public class OSCOREMulticastObserveClient {
   }
 
   public static void main(String requestURI, int timeout, int sender) {
-	 try {
-		 Configuration config = Configuration.getStandard();
-      Configuration.setStandard(config);
-		 
-      LOGGER.debug("Requesting {}", requestURI);
-      try {
-			  setupOscore(requestURI, sender);
-      } catch (OSException e) {
-        e.printStackTrace();
-        return;
-      }     
-      CoapEndpoint endpoint = new CoapEndpoint.Builder().setConfiguration(config).build();
-      CoapClient client = new CoapClient();
-      client.setEndpoint(endpoint);
-      client.setURI(requestURI);
-      
-      Request multicastRequest = Request.newGet();
-      multicastRequest.setObserve();
-      multicastRequest.getOptions().setOscore(Bytes.EMPTY);
-      multicastRequest.setConfirmable(true);
+		 try {
+			 Configuration config = Configuration.getStandard();
+	      Configuration.setStandard(config);
+			 
+	      LOGGER.debug("Requesting {}", requestURI);
+	      try {
+				  setupOscore(sender);
+	      } catch (OSException e) {
+	        e.printStackTrace();
+	        return;
+	      }     
 
-      LOGGER.debug("Requesting {}", multicastRequest.getURI());
-      MulticastObserveHandler handler = new MulticastObserveHandler(4);
-
-      CoapObserveRelation relation = client.observe(multicastRequest, handler);
-      
-      handler.waitForNotifications();
-      relation.reactiveCancel();
-      client.shutdown();
-        if (multicastClient != null) multicastClient.shutdown();
-  } catch (Exception e) {
-    LOGGER.error("Error in multicast observe client", e);
-  }
-  }
+	      CoapEndpoint endpoint = new CoapEndpoint.Builder().setConfiguration(config).build();
+	      CoapClient client = new CoapClient();
+	      client.setEndpoint(endpoint);
+	      client.setURI(requestURI);
+	      
+	      Request multicastRequest = createRequest(Code.GET, requestURI);
+	    
+	      
+	      MulticastObserveHandler handler = new MulticastObserveHandler(4);
+	      client.observe(multicastRequest, handler);
+	      
+	      handler.waitForNotifications();
+			
+	      // Deregister observe
+	      Request deregisterRequest = createRequest(Code.GET, requestURI);
+	      deregisterRequest.getOptions().setObserve(1); // Observe=1 means cancel
+	      deregisterRequest.send();
+	      
+	        if (multicastClient != null) multicastClient.shutdown();
+	  } catch (Exception e) {
+	    LOGGER.error("Error in multicast observe client", e);
+	  }
+	  }
 }

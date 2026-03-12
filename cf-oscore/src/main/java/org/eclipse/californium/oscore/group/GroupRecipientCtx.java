@@ -255,7 +255,7 @@ public class GroupRecipientCtx extends OSCoreCtx {
 	@Override
 	public synchronized int getSenderSeq() {
 		StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
-		System.err.println("Bad call to getSenderSeq on GroupRecipientCtx" + stackTraceElements[2].toString());
+		System.err.println("Bad call to getSenderSeq on GroupRecipientCtx: " + stackTraceElements[2].toString());
 		assert (false);
 		return sender_seq;
 	}

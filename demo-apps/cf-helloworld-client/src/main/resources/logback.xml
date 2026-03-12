@@ -32,6 +32,14 @@
 		<appender-ref ref="STDOUT" />
 	</logger>
 
+  	<logger name="org.eclipse.californium.core.network.stack.UdpMatcher" level="TRACE" additivity="false">
+		<appender-ref ref="STDOUT" />
+	</logger>
+
+  	<logger name="org.eclipse.californium.core.network.stack.BaseMatcher" level="TRACE" additivity="false">
+		<appender-ref ref="STDOUT" />
+	</logger>
+
 	<logger name="ch.qos.logback" level="ERROR" additivity="false">
 		<appender-ref ref="STDOUT" />
 	</logger>

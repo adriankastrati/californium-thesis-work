@@ -23,6 +23,7 @@ import org.eclipse.californium.core.network.TokenGenerator.Scope;
 import org.eclipse.californium.core.server.resources.Resource;
 import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
+import org.eclipse.californium.elements.util.Bytes;
 
 /**
  * Assuming that multicast notifications will all be sent to the same address for each group observation, 
@@ -131,7 +132,14 @@ public class GroupObservationsInfo {
 	public boolean isGroupObservationSetupInProgress(String uri) {
     return Boolean.TRUE.equals(ongoingGroupObservationSetup.get(uri));
 }
-
+	private byte[] sender_ID;
+	
+	public byte[] getSender_ID() {
+		return sender_ID;
+	}
+	public void setSender_ID(byte[] sender_ID) {
+		this.sender_ID = sender_ID;
+	}
 	/**
 	 * Allocate a token for multicast notifications for a resource URI and mark it as pending.
 	 * 
@@ -275,7 +283,7 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 	 * @param triggeringCoapExchange the original client CoapExchange that triggered this setup
 	 * @return the phantom CoapExchange ready to be delivered
 	 */
-	public Request createPhantomRequest(Resource resource, Token multicastToken, CoapExchange triggeringCoapExchange) {
+	public Request createPhantomRequest(Resource resource, Token multicastToken, CoapExchange triggeringCoapExchange, boolean hasOscore) {
 		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
 		
 		// Step 6: Build the phantom GET request
@@ -289,10 +297,12 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 		
 		// Set URI path to the resource
 		phantomRequest.getOptions().setUriPath(resource.getURI());
-		
+
 		// Set message type to NON (multicast requires non-confirmable)
 		phantomRequest.setType(Type.NON);
 		
+		phantomRequest.getOptions().setOscore(Bytes.EMPTY);
+
 		InetSocketAddress localAddress = triggeringCoapExchange.advanced().getEndpoint().getAddress();
 		
 		// Set source context to the server's own address.

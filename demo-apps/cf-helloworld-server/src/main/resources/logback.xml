@@ -39,7 +39,9 @@
 	<logger name="ch.qos.logback" level="ERROR" additivity="false">
 		<appender-ref ref="STDOUT" />
 	</logger>
-
+  <logger name="org.eclipse.californium.elements.elements.IDPConnector" level="TRACE" additivity="false">
+		<appender-ref ref="STDOUT" />
+	</logger>
 	<!-- Enable TRACE for all Californium classes -->
 	<root level="TRACE">
 		<appender-ref ref="STDOUT" />

@@ -186,20 +186,6 @@ public class AHelloWorldServer extends CoapServer {
 		        super.removeObserveRelation(relation);
 		        System.out.println("Observe relation removed by client");
 		 }
-		 
-		@Override
-		public void handlePUT(CoapExchange exchange) {
-			String requestText = exchange.getRequestText();
-			String old = this.content;
-			
-			this.content = requestText;
-			String response_payload = old + " -> " + this.content;
-			
-			exchange.respond(ResponseCode.CHANGED, response_payload);
-			
-			changed();
-			
-		}
 		
 	}
 }

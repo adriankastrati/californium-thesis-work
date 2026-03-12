@@ -24,6 +24,9 @@ import java.net.SocketException;
 import java.security.Provider;
 import java.security.Security;
 import java.util.Random;
+import java.util.Timer;
+import java.util.TimerTask;
+
 
 import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.CoapResource;
@@ -105,7 +108,6 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 	 */
 	public OSCOREAHelloWorldServer() throws SocketException {	    
 	    GroupObservationsInfo.init();
-	   
 	}
 
 	/**
@@ -144,7 +146,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 	/* --- OSCORE Security Context information (receiver) --- */
 	private final static HashMapCtxDB db = new HashMapCtxDB();
-	private final static String uriLocal = "coap://localhost";
+	private static String uriLocal = "coap://localhost";
 	private final static AlgorithmID alg = AlgorithmID.AES_CCM_16_64_128;
 	private final static AlgorithmID kdf = AlgorithmID.HMAC_SHA_256;
 
@@ -176,6 +178,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			(byte) 0x80, (byte) 0xED, 0x49, 0x7E, 0x27, (byte) 0xBD, (byte) 0xFD, 0x46, (byte) 0x85, (byte) 0xFA, 0x1A,
 			0x30, 0x4F, 0x26 };
 	private static MultiKey server_private_key;
+	private static MultiKey server_public_key;
 
 	
 	private final static byte[] sender_1_ID = new byte[] { 0x25 };
@@ -204,6 +207,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 		
 		OSCOREAHelloWorldServer server = new OSCOREAHelloWorldServer();
+		
 		server.OSCORESetup();
 		server.addEndpoint();
 		Resource resource = server.getRoot();
@@ -211,8 +215,8 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		
 		//resource.add(new HelloWorldResource(true));
 	    
-		  resource.add(new ObservableResource());
-	    //resource.add(new OSCOREMulticastObservableResource(sid,"OSCORE-mult", true, server.getMessageDeliverer()));
+		  resource.add(new ObservableResource(server));
+	    resource.add(new OSCOREMulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer()));
 	    //resource.add(new MulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer()));
 	    server.start();
 	    
@@ -245,6 +249,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 		// Set sender & receiver keys for countersignatures
 		server_private_key = new MultiKey(server_public_key_bytes, server_private_key_bytes);
+		server_public_key = new MultiKey(server_public_key_bytes); 
 		sender_1_public_key = new MultiKey(sender_1_public_key_bytes);
 		sender_2_public_key = new MultiKey(sender_2_public_key_bytes);
 
@@ -256,19 +261,21 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 					algGroupEnc, algKeyAgreement, gmPublicKey);
 
 			commonCtx.addSenderCtxCcs(server_id, server_private_key);
-
+			
 			commonCtx.addRecipientCtxCcs(sender_1_ID, REPLAY_WINDOW, sender_1_public_key);
 			commonCtx.addRecipientCtxCcs(sender_2_ID, REPLAY_WINDOW, sender_2_public_key);
+			//commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, server_public_key);
 			
 			commonCtx.setResponsesIncludePartialIV(false);
-			commonCtx.setPairwiseModeResponses(true);
+			commonCtx.setPairwiseModeResponses(false);
 
-			OSCoreCtx.DISABLE_REPLAY_CHECKS = false;
-			db.addContext(uriLocal, commonCtx);
+			OSCoreCtx.DISABLE_REPLAY_CHECKS = true;
+			db.addContext("127.0.0.1", commonCtx);
 
+			GroupObservationsInfo.getInstance().setSender_ID(server_id);
 			OSCoreCoapStackFactory.useAsDefault(db);
-		}
 
+		}
 
 		
 	}
@@ -335,42 +342,44 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 	
 
 	private static class ObservableResource extends OSCoreResource {
+			
+			public String content = "one";
+			private boolean firstRequestReceived = false;
+			private Timer timer  = new Timer();
+			OSCOREAHelloWorldServer server;
+			public ObservableResource(OSCOREAHelloWorldServer server) {
+				super("obs",true);
+				this.server = server;
+				
+				this.setObservable(true); 
+				this.getAttributes().setObservable();
 
-		private volatile String content;
-		private final String originalContent;
-		
-		public ObservableResource() {
+				// set resource identifier
+				// set display name
+				getAttributes().setTitle("pub-sub Resource");
 
-			// set resource identifier
-			super("obs",true);
-			// set display name
-			getAttributes().setTitle("pub-sub Resource");
-			setObservable(true);
-			setObserveType(Type.NON);
-			System.out.println(this.getPath());
+				setObserveType(Type.CON);
+				System.out.println(this.getPath());
+			
+				timer.schedule(new UpdateTask(), 0, 10000);
+			}
 
-		
-			this.content = "1";
-			this.originalContent = this.content;
-		}
-
-		
-		@Override
-		public void handleGET(CoapExchange exchange) {
-			// respond to the request
-			exchange.respond(ResponseCode.CONTENT, this.content);
-		}
-		
-		@Override
-		public void changed() {
-			super.changed();
-		}
+			@Override
+			public void handleGET(CoapExchange exchange) {
+				firstRequestReceived  = true;
+				exchange.respond(ResponseCode.CONTENT, this.content);
+			}		
+			
+			@Override
+			public void changed() {
+				super.changed();
+			}
 		 
-		@Override
-      public void removeObserveRelation(ObserveRelation relation) {
-        super.removeObserveRelation(relation);
-        System.out.println("Observe relation removed by client");
-		 }
+			@Override
+			public void removeObserveRelation(ObserveRelation relation) {
+		        super.removeObserveRelation(relation);
+		        System.out.println("Observe relation removed by client");
+			 }
 		 
 		@Override
 		public void handlePUT(CoapExchange exchange) {
@@ -384,6 +393,25 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			
 			changed();
 			
+		}
+		class UpdateTask extends TimerTask {
+			@Override
+			public void run() {
+				if(firstRequestReceived) {
+					String str = content + " -> " + "two";
+					if (content.equals("two")){
+						try {
+							Thread.sleep(100000000);
+						} catch (InterruptedException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+					}
+			        System.out.println("Timer ran out: "+ str);
+					content = "two";
+					changed(); // notify all observers
+				}
+			}
 		}
 		
 	}

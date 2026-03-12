@@ -112,7 +112,7 @@ public abstract class Decryptor {
 			nonceLength = algIvLen;
 			commonIV = Arrays.copyOfRange(ctx.getCommonIV(), 0, nonceLength);
 		}
-		System.out.println("Decryption nonce length: " + nonceLength);
+		LOGGER.debug("Decryption nonce length: {}", nonceLength);
 
 		if (isRequest) {
 
@@ -164,7 +164,7 @@ public abstract class Decryptor {
 						throw new OSException(ErrorDescriptions.DECRYPTION_FAILED);
 					}
 					
-					System.out.println("Deterministic Request - Hash value: " + Utils.toHexString(hash) + "\n");
+					LOGGER.debug("Deterministic Request - Hash value: {}", Utils.toHexString(hash));
 					
 					isDetReq = true;
 					
@@ -243,11 +243,11 @@ public abstract class Decryptor {
 			nonce = ctx.getNonceHandover();
 		}
 
-		System.out.println("Decrypting incoming " + message.getClass().getSimpleName());
-		System.out.println("PartialIV " + Utils.toHexString(partialIV));
-		System.out.println("Nonce " + Utils.toHexString(nonce));
-		System.out.println("Common IV " + Utils.toHexString(ctx.getCommonIV()));
-		System.out.println("AAD " + Utils.toHexString(aad));
+		LOGGER.debug("Decrypting incoming {}", message.getClass().getSimpleName());
+		LOGGER.debug("PartialIV {}", Utils.toHexString(partialIV));
+		LOGGER.debug("Nonce {}", Utils.toHexString(nonce));
+		LOGGER.debug("Common IV {}", Utils.toHexString(ctx.getCommonIV()));
+		LOGGER.debug("AAD {}", Utils.toHexString(aad));
 		
 		byte[] plaintext = null;
 		byte[] key = ctx.getRecipientKey();
@@ -256,18 +256,14 @@ public abstract class Decryptor {
 		// Handle Group OSCORE messages
 		CounterSign1 sign = null;
 		if (ctx.isGroupContext() || isDetReq) {
-			LOGGER.debug("Decrypting incoming " + message.getClass().getSimpleName()
-					+ " using Group OSCORE. Pairwise mode: " + !groupModeMessage);
+			LOGGER.debug("Decrypting incoming {} using Group OSCORE. Pairwise mode", message.getClass().getSimpleName(), !groupModeMessage);
 
 			// Update external AAD value for Group OSCORE
 			aad = OSSerializer.updateAADForGroup(ctx, aad, message);
 
-			System.out.println("Decrypting incoming " + message.getClass().getSimpleName() + ", using pairwise mode: "
-					+ !groupModeMessage);
-			System.out.println("Decrypting incoming " + message.getClass().getSimpleName() + " with AAD "
-					+ Utils.toHexString(aad));
-			System.out.println("Decrypting incoming " + message.getClass().getSimpleName() + " with nonce "
-					+ Utils.toHexString(nonce));
+			LOGGER.debug("Decrypting incoming {} using pairwise mode: ",message.getClass().getSimpleName(), !groupModeMessage);
+			LOGGER.debug("Decrypting incoming {} with AAD {}", message.getClass().getSimpleName(), Utils.toHexString(aad));
+			LOGGER.debug("Decrypting incoming {} with nonce {}", message.getClass().getSimpleName(), Utils.toHexString(nonce));
 
 			// If group mode is used prepare the signature checking
 			if (groupModeMessage) {
@@ -335,12 +331,12 @@ public abstract class Decryptor {
 			}
 		}
 
-		// DET_REQ (moved down here)
-		System.out.println("Decrypting incoming " + message.getClass().getSimpleName());
-		System.out.println("Key " + Utils.toHexString(key));
-		System.out.println("PartialIV " + Utils.toHexString(partialIV));
-		System.out.println("Nonce " + Utils.toHexString(nonce));
-		System.out.println("AAD " + Utils.toHexString(aad));
+		// DET_REQ (moved down here){}"",
+		LOGGER.debug("Decrypting incoming {}", message.getClass().getSimpleName());
+		LOGGER.debug("Key {}", Utils.toHexString(key));
+		LOGGER.debug("PartialIV {}", Utils.toHexString(partialIV));
+		LOGGER.debug("Nonce {}", Utils.toHexString(nonce));
+		LOGGER.debug("AAD {}", Utils.toHexString(aad));
 
 		enc.setExternal(aad);
 
@@ -348,7 +344,7 @@ public abstract class Decryptor {
 		if (groupModeMessage) {
 			// Verify the signature
 			boolean signatureCorrect = checkSignature(enc, sign);
-			LOGGER.debug("Signature verification succeeded: " + signatureCorrect);
+			LOGGER.debug("Signature verification succeeded: {}", signatureCorrect);
 		}
 
 		try {
@@ -389,11 +385,11 @@ public abstract class Decryptor {
 			}
 
 			// Debugging
-			System.out.println("\n");
-			System.out.println("Hash input - Sender Key Deterministic Client: " + Utils.toHexString(detRecipientKey));
-			System.out.println("Hash input - Original aad : " + Utils.toHexString(aad));
-			System.out.println("Hash input - COSE Plaintext : " + Utils.toHexString(plaintext));
-			System.out.println("Deterministic Request - Recomputed hash value: " + Utils.toHexString(recomputedHash) + "\n");
+			LOGGER.debug("\n");
+			LOGGER.debug("Hash input - Sender Key Deterministic Client: {}", Utils.toHexString(detRecipientKey));
+			LOGGER.debug("Hash input - Original aad : {}", Utils.toHexString(aad));
+			LOGGER.debug("Hash input - COSE Plaintext : {}",Utils.toHexString(plaintext));
+			LOGGER.debug("Deterministic Request - Recomputed hash value: {}", Utils.toHexString(recomputedHash) + "\n");
 			
 			// Compare the hash from the Request-Hash option with the recomputed hash
 			if (!Arrays.equals(hash, recomputedHash)) {
@@ -590,7 +586,7 @@ public abstract class Decryptor {
 
 			sign.setExternal(signAad);
 
-			System.out.println("Checking signature for incoming " + message.getClass().getSimpleName()
+			LOGGER.debug("Checking signature for incoming " + message.getClass().getSimpleName()
 					+ " with sign AAD " + Utils.toHexString(signAad));
 		} catch (Exception e) {
 			LOGGER.error("Countersignature verification procedure failed.");
@@ -621,7 +617,7 @@ public abstract class Decryptor {
 		info.Add(isRequest);
 		info.Add(keyLength);
 
-		System.out.println("INFO ARRAY: " + StringUtil.byteArray2Hex(info.EncodeToBytes()));
+		LOGGER.debug("INFO ARRAY: " + StringUtil.byteArray2Hex(info.EncodeToBytes()));
 
 		byte[] signatureEncryptionKey = ctx.getCommonCtx().getSignatureEncryptionKey();
 		byte[] keystream = null;
@@ -632,14 +628,14 @@ public abstract class Decryptor {
 			System.err.println(e.getMessage());
 		}
 
-		System.out.println("===");
-		System.out.println("D Signature keystream: " + Utils.toHexString(keystream));
-		System.out.println("D signatureEncryptionKey: " + Utils.toHexString(signatureEncryptionKey));
-		System.out.println("D partialIV: " + Utils.toHexString(partialIV));
-		System.out.println("D kid: " + Utils.toHexString(kid));
-		System.out.println("D IdContext: " + Utils.toHexString(ctx.getIdContext()));
-		System.out.println("D isRequest: " + isRequest);
-		System.out.println("===");
+		LOGGER.debug("===");
+		LOGGER.debug("D Signature keystream: " + Utils.toHexString(keystream));
+		LOGGER.debug("D signatureEncryptionKey: " + Utils.toHexString(signatureEncryptionKey));
+		LOGGER.debug("D partialIV: " + Utils.toHexString(partialIV));
+		LOGGER.debug("D kid: " + Utils.toHexString(kid));
+		LOGGER.debug("D IdContext: " + Utils.toHexString(ctx.getIdContext()));
+		LOGGER.debug("D isRequest: " + isRequest);
+		LOGGER.debug("===");
 
 		// Now actually decrypt the signature
 		byte[] full_payload = null;
@@ -658,7 +654,7 @@ public abstract class Decryptor {
 			decryptedCountersign[i] = (byte) (countersignBytes[i] ^ keystream[i]);
 		}
 
-		System.out.println("D Signature bytes: " + Utils.toHexString(decryptedCountersign));
+		LOGGER.debug("D Signature bytes: " + Utils.toHexString(decryptedCountersign));
 
 		// Replace the signature in the Encrypt0 object
 		enc.setEncryptedContent(Bytes.concatenate(ciphertext, decryptedCountersign));

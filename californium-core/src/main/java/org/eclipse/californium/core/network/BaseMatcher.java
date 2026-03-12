@@ -182,7 +182,7 @@ public abstract class BaseMatcher implements Matcher {
 	 * @param request observe request.
 	 */
 	protected final void registerObserve(final Request request) {
-
+    LOG.debug("registtering observe for request: {}",request.getPayloadString());
 		// Ignore follow-up blockwise request
 		if (!request.getOptions().hasBlock2() || request.getOptions().getBlock2().getNum() == 0) {
 			// add request to the store
@@ -202,11 +202,13 @@ public abstract class BaseMatcher implements Matcher {
 
 				@Override
 				public void onCancel() {
+          LOG.debug("Cancelling Observe relation with token {}", this.token);
 					remove();
 				}
 
 				@Override
 				protected void failed() {
+          LOG.debug("Cancelling Observe relation with token {}", this.token);
 					remove();
 				}
 
@@ -227,7 +229,7 @@ public abstract class BaseMatcher implements Matcher {
 	 *         informations, null, otherwise.
 	 */
 	protected final Exchange matchNotifyResponse(final Response response) {
-
+    LOG.debug(response.toString());
 		Exchange exchange = null;
 		if (!response.isSuccess() || response.getOptions().hasObserve()) {
 			Token token = response.getToken();
@@ -277,6 +279,7 @@ public abstract class BaseMatcher implements Matcher {
 	 */
 	@Override
 	public void cancelObserve(Token token) {
+    LOG.debug("canceling observe for token: {}",token);
 		// Note: the initial observe exchanges is not longer stored with
 		// the original token but a pending blockwise notifies may still
 		// have a request with that token.
@@ -341,6 +344,7 @@ public abstract class BaseMatcher implements Matcher {
 		 * Remove token from observation store. Mostly called once.
 		 */
 		protected void remove() {
+        LOG.debug("canceling observe for token: {}",token);
 			if (removed.compareAndSet(false, true)) {
 				observationStore.remove(token);
 			}

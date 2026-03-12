@@ -99,14 +99,7 @@ public class ObserveLayer extends AbstractLayer {
 		if (!groupObservationInfo.isTokenPendingProcess(token)) {
 			return false;
 		}
-		
-		// Condition 3: Check based on OSCORE protection
-		if (request.getOptions().hasOscore()) {
-			LOGGER.debug("has OSCORE");
-			// OSCORE-protected phantom request
-		return false;
-		} else {
-			LOGGER.debug("Does not have OSCORE");
+
 			// NOT OSCORE-protected: source address and port must be the server's own
 			InetSocketAddress sourceAddress = request.getSourceContext().getPeerAddress();
 			InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
@@ -114,7 +107,7 @@ public class ObserveLayer extends AbstractLayer {
 			LOGGER.debug("Phantom request check: source={}, local={}", 
       sourceAddress, localAddress);
       return sourceAddress.equals(localAddress);
-		}
+		
 	}
 
 	@Override
@@ -207,6 +200,12 @@ public class ObserveLayer extends AbstractLayer {
 				}
 			}
 		}
+      if (exchange.isSuppressResponse() && !exchange.getRequest().getOptions().hasOscore()) {
+      // Only suppress during initial setup, not for subsequent notifications
+      LOGGER.info("Suppressing first response");
+      exchange.setSuppressResponse(false);
+      return;
+    }
 		// For phantom exchanges (multicast observe notifications), ensure the response
 		// goes to the multicast address. The exchange.isPhantomRequest() flag was set
 		// during the initial phantom request setup.
@@ -214,6 +213,7 @@ public class ObserveLayer extends AbstractLayer {
 			LOGGER.info("Sending multicast notification to: {}", 
 					exchange.getRequest().getSourceContext().getPeerAddress());
 		}
+    
 		lower().sendResponse(exchange, response);
 	}
 

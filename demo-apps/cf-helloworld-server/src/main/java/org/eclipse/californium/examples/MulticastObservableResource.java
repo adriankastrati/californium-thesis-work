@@ -34,6 +34,9 @@ package org.eclipse.californium.examples;
 
 import java.net.InetSocketAddress;
 import java.util.List;
+
+import java.util.Timer;
+import java.util.TimerTask;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.CoapExchange;
@@ -56,9 +59,12 @@ import org.slf4j.LoggerFactory;
 
 public class MulticastObservableResource extends CoapResource {
   private static final Logger LOGGER = LoggerFactory.getLogger(MulticastObservableResource.class);
-  private volatile String content = "initial";
+  private volatile int content = 1;
+ private volatile boolean sentFirstNotifications = false;
+
   private final boolean isGroupObservable;
   private final MessageDeliverer serverMessageDeliverer;
+  Timer timer = new Timer();
   public MulticastObservableResource(String uri, boolean groupObservable, MessageDeliverer serverMessageDeliverer) {
     // set resource identifier
     super(uri);
@@ -69,8 +75,9 @@ public class MulticastObservableResource extends CoapResource {
     setObserveType(null);
     this.isGroupObservable = groupObservable;
     LOGGER.info("MulticastObservableResource created - URI: {}, Path: {}, Observable: {}", uri, this.getPath(), isObservable());
-  }
-
+  
+		
+		}
   
   @Override
   public void handleGET(CoapExchange exchange) {
@@ -79,6 +86,18 @@ public class MulticastObservableResource extends CoapResource {
     String uriPath = this.getURI();
     
     if (exchange.getRequestOptions().hasObserve() && exchange.getRequestOptions().getObserve() == 0){
+      if(!sentFirstNotifications){
+    	  class UpdateTask extends TimerTask {
+  			@Override
+  			public void run() {
+            content++;
+  				changed(); // notify all observers
+  			}
+  		}
+        timer.schedule(new UpdateTask(), 0, 15000);
+        sentFirstNotifications = true;
+      }
+
       if (exchange.advanced().isPhantomRequest()) {
           handlePhantomRequest(exchange);
       }
@@ -94,7 +113,7 @@ public class MulticastObservableResource extends CoapResource {
       }
     }else{
       // Normal GET request handling
-      exchange.respond(ResponseCode.CONTENT, this.content);
+      exchange.respond(ResponseCode.CONTENT, Integer.toString(content));
     }
   }
   
@@ -151,8 +170,9 @@ public class MulticastObservableResource extends CoapResource {
   @Override
   public void changed() {
     LOGGER.info("Observer count at change of resource {}", this.getObserverCount());
+    
     super.changed();
-  }
+  } 
     
   @Override
       public void removeObserveRelation(ObserveRelation relation) {
@@ -162,14 +182,7 @@ public class MulticastObservableResource extends CoapResource {
     
   @Override
   public void handlePUT(CoapExchange exchange) {
-    String requestText = exchange.getRequestText();
-    String old = this.content;
-    
-    this.content = requestText;
-    String response_payload = old + " -> " + this.content;
-    
-    exchange.respond(ResponseCode.CHANGED, response_payload);
-    
+
     changed();
   }	
   public boolean isGroupObservable(){
@@ -203,7 +216,7 @@ public class MulticastObservableResource extends CoapResource {
 
       // Still respond, this will establish the observe relation internally
       // but the response will be suppressed by StackBottomAdapter
-      exchange.respond(ResponseCode.CONTENT, this.content);
+      exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
       
       // Send informative response to all pending clients
       sendInformativeResponsesToClients(uriPath, observationInfo);
@@ -213,7 +226,7 @@ public class MulticastObservableResource extends CoapResource {
         // Just send the normal response - it will go to multicast address
         LOGGER.info("Sending multicast notification for {} with content: {}", uriPath, this.content);
         
-        exchange.respond(ResponseCode.CONTENT, this.content);
+        exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
         return;
       }
   }
@@ -320,7 +333,7 @@ public class MulticastObservableResource extends CoapResource {
         // Step 6-7: Create and deliver phantom request
         // Note: First client is NOT added to pending clients - it will continue
         // to handleGET after phantom completes and receive informative response there
-        final Request phantomExchange = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange);
+        final Request phantomExchange = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange, false);
 
         // The phantom's observe relation will be established during response handling
         // via ObserveRelation.onResponse()

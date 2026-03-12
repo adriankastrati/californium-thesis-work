@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
 	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
@@ -28,6 +27,10 @@
 	<logger name="org.eclipse.californium.core.network.stack.BlockwiseLayer" level="TRACE" additivity="false">
 		<appender-ref ref="STDOUT" />
 	</logger>
+		<logger name="org.eclipse.californium.core.network.CoapEndpoint" level="TRACE" additivity="false">
+		<appender-ref ref="STDOUT" />
+	</logger>
+
 
 	<logger name="org.eclipse.californium.core.network.stack.ObserveLayer" level="TRACE" additivity="false">
 		<appender-ref ref="STDOUT" />
@@ -36,7 +39,9 @@
 	<logger name="ch.qos.logback" level="ERROR" additivity="false">
 		<appender-ref ref="STDOUT" />
 	</logger>
-
+  <logger name="org.eclipse.californium.elements.elements.IDPConnector" level="TRACE" additivity="false">
+		<appender-ref ref="STDOUT" />
+	</logger>
 	<!-- Enable TRACE for all Californium classes -->
 	<root level="TRACE">
 		<appender-ref ref="STDOUT" />
