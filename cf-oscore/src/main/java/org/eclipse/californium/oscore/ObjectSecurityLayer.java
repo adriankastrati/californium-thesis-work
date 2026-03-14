@@ -134,7 +134,10 @@ public class ObjectSecurityLayer extends AbstractLayer {
 
 	@Override
 	public void sendRequest(final Exchange exchange, final Request request) {
+    LOGGER.debug("Handling request: {}", exchange.getRequest());
+
 		Request req = request;
+		
 		if (shouldProtectRequest(request)) {
 			try {
 				// Handle outgoing requests for more data from a responder that
@@ -168,14 +171,13 @@ public class ObjectSecurityLayer extends AbstractLayer {
 					// Use the URI from the option to find the correct context
 					uri = OptionEncoder.getContextUri(request.getOptions().getOscore());
 				}
-
+        System.out.println(request.toString());
 				if (uri == null) {
 					LOGGER.error(ErrorDescriptions.URI_NULL);
 					throw new OSException(ErrorDescriptions.URI_NULL);
 				}
 
 				OSCoreCtx ctx = ctxDb.getContext(uri);
-
 				if (ctx == null) {
 					LOGGER.error(ErrorDescriptions.CTX_NULL);
 					throw new OSException(ErrorDescriptions.CTX_NULL);
@@ -192,7 +194,7 @@ public class ObjectSecurityLayer extends AbstractLayer {
 				 * endpoint context that will be created after the request is sent.
 				 */
 				OSCoreEndpointContextInfo.sendingRequest(ctx, exchange);
-
+					
 				final Request preparedRequest = prepareSend(ctxDb, request);
 				final OSCoreCtx finalCtx = ctxDb.getContext(uri);
 
@@ -230,7 +232,7 @@ public class ObjectSecurityLayer extends AbstractLayer {
 						ctxDb.addContext(token, finalCtx);
 					}
 				});
-
+				
 				req = preparedRequest;
 				exchange.setCryptographicContextID(req.getOptions().getOscore());
 
@@ -252,7 +254,7 @@ public class ObjectSecurityLayer extends AbstractLayer {
 			byte[] requestHash = req.getOptions().getRequestHash();
 			exchange.getRequest().getOptions().setRequestHash(requestHash);
 		}
-		
+		req.setShouldSend(request.getShouldSend());
 		super.sendRequest(exchange, req);
 		
 	}
@@ -319,11 +321,12 @@ public class ObjectSecurityLayer extends AbstractLayer {
 					}
 					response.getOptions().setRequestHash(requestHashOption);
 				}
-				if(exchange.isPhantomRequest()) {
-					exchange.setSuppressResponse(true);
-					GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
-					
-				}
+				if (exchange.isSuppressResponse() && !exchange.getRequest().getOptions().hasOscore()) {
+				      // Only suppress during initial setup, not for subsequent notifications
+				      LOGGER.info("Suppressing first response");
+				      exchange.setSuppressResponse(false);
+				      return;
+				    }
 				Response preparedResponse = prepareSend(ctxDb, response, ctx, addPartialIV, outerBlockwise,
 						requestSequenceNumber, requestOption);
 
@@ -409,7 +412,10 @@ public class ObjectSecurityLayer extends AbstractLayer {
 			
 			if (isPhantomRequest(exchange)) {
 				exchange.setProtectedRequest(request.getBytes());
-				
+				LOGGER.debug("Phantom request has oscore option set to {}",(exchange.getRequest().getOptions().hasOscore()));
+        exchange.getRequest().setIsPhantomRequest(true);
+        request.setIsPhantomRequest(true);
+
 				
 				LOGGER.info("Recognized phantom request for {} with token {}",
 						request.getOptions().getUriPathString(), request.getToken());

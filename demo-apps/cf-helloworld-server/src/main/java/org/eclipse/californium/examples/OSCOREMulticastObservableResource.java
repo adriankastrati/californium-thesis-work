@@ -34,11 +34,15 @@ package org.eclipse.californium.examples;
 
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.TimerTask;
+import java.util.Timer;
+
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
+import org.eclipse.californium.core.coap.OptionSet;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
@@ -52,13 +56,17 @@ import org.eclipse.californium.core.server.MessageDeliverer;
 import org.eclipse.californium.core.server.resources.Resource;
 import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.util.Bytes;
+import org.eclipse.californium.oscore.ErrorDescriptions;
 import org.eclipse.californium.oscore.OSCoreResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class OSCOREMulticastObservableResource extends OSCoreResource {
   private static final Logger LOGGER = LoggerFactory.getLogger(OSCOREMulticastObservableResource.class);
-  private volatile String content = "initial";
+  private volatile int content = 1;
+  private Timer timer  = new Timer();
+  private boolean firstRequestReceived = false;
+
   private final boolean isGroupObservable;
   private final MessageDeliverer serverMessageDeliverer;
   public OSCOREMulticastObservableResource(String uri, boolean groupObservable, MessageDeliverer serverMessageDeliverer) {
@@ -71,11 +79,14 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     setObserveType(null);
     this.isGroupObservable = groupObservable;
     LOGGER.info("MulticastObservableResource created - URI: {}, Path: {}, Observable: {}", uri, this.getPath(), isObservable());
+    timer.schedule(new UpdateTask(), 0, 10000);
+
   }
 
   
   @Override
   public void handleGET(CoapExchange exchange) {
+	firstRequestReceived= true;
     // respond to the request
     GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
     String uriPath = this.getURI();
@@ -96,7 +107,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       }
     }else{
       // Normal GET request handling
-      exchange.respond(ResponseCode.CONTENT, this.content);
+      exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
     }
   }
   
@@ -112,6 +123,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     // Serialize ObservationInfo to CBOR payload
     byte[] payload = obsInfo.toCbor();
     response.setPayload(payload);
+    
     
     LOGGER.debug("Sending informative response (5.03) to client {} with token {}. ObservationInfo: {}",
         exchange.getSourceSocketAddress(), exchange.advanced().getRequest().getToken(), obsInfo);
@@ -134,7 +146,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     for (CoapExchange clientExchange : pendingClients) {
       Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
       response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
-      
+
       byte[] payload = groupInfo.getGroupObservationInfo(uriPath).toCbor();
       response.setPayload(payload);
       
@@ -146,7 +158,12 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
           clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(), 
           clientExchange.advanced().getRequest().getToken(), obsInfo);
       
+      LOGGER.debug("Removing OSCORE option for informative response");
+      clientExchange.advanced().getRequest().getOptions().removeOscore();
+      clientExchange.advanced().setCryptographicContextID(null);
+
       clientExchange.respond(response);
+
     }
   }
   
@@ -162,18 +179,6 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
           System.out.println("Observe relation removed by client");
     }
     
-  @Override
-  public void handlePUT(CoapExchange exchange) {
-    String requestText = exchange.getRequestText();
-    String old = this.content;
-    
-    this.content = requestText;
-    String response_payload = old + " -> " + this.content;
-    
-    exchange.respond(ResponseCode.CHANGED, response_payload);
-    
-    changed();
-  }	
   public boolean isGroupObservable(){
     return isGroupObservable;
   }
@@ -195,16 +200,21 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       InetSocketAddress multicastAddress = groupObservationsInfo.getMulticastAddress();
       ObservationInfo observationInfo = new ObservationInfo(localAddress, multicastAddress, exchangeToken);
       
+      
       // Start the group observation, this removes token from pendingMulticastNotificationTokens
       groupObservationsInfo.startGroupObservation(uriPath, observationInfo);
 
       // Clear the setup-in-progress flagsss
       groupObservationsInfo.setGroupObservationSetupInProgress(uriPath, false);
 
+      //Add phantom request
+      groupObservationsInfo.getGroupObservationInfo(uriPath).setPhReq(exchange.advanced().getProtectedRequest());
+
       // Still respond, this will establish the observe relation internally
       // but the response will be suppressed by StackBottomAdapter
-      exchange.respond(ResponseCode.CONTENT, this.content);
-      
+      exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
+      LOGGER.info("handle phantom request for {} with content: {}", uriPath, this.content);
+
       // Send informative response to all pending clients
       sendInformativeResponsesToClients(uriPath, observationInfo);
     }else
@@ -213,10 +223,19 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
         // Just send the normal response - it will go to multicast address
         LOGGER.info("Sending multicast notification for {} with content: {}", uriPath, this.content);
         
-        exchange.respond(ResponseCode.CONTENT, this.content);
+        exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
         return;
       }
   }
+  	@Override
+	public void handleRequest(final Exchange exchange) {
+  	    GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
+  	  if(groupObservationsInfo.isOngoingGroupObservation(this.getURI())) {  		  
+  		  exchange.getRequest().getOptions().setOscore(Bytes.EMPTY);
+  	  }
+
+		super.handleRequest(exchange);
+	}
 
   private boolean shouldGroupObservationStart(){
     return this.getObserverCount() >= 0;
@@ -277,4 +296,15 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
         // Now continue to let the first client's request reach handleGET,
       }
   }
+  class UpdateTask extends TimerTask {
+        @Override
+        public void run() {
+        	int prev = content;
+            content++;
+            LOGGER.info("{} -> {}", prev, content);
+            changed(); // notify all observers
+          
+        }
+      }
 }
+

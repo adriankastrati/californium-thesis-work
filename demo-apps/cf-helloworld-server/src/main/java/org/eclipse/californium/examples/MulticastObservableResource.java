@@ -208,13 +208,14 @@ public class MulticastObservableResource extends CoapResource {
       
       // Start the group observation, this removes token from pendingMulticastNotificationTokens
       groupObservationsInfo.startGroupObservation(uriPath, observationInfo);
+      //Add phantom request
+      groupObservationsInfo.getGroupObservationInfo(uriPath).setPhReq(exchange.advanced().getProtectedRequest());
 
       // Clear the setup-in-progress flagsss
       groupObservationsInfo.setGroupObservationSetupInProgress(uriPath, false);
       
-
-
-      // Still respond, this will establish the observe relation internally
+      
+    		  // Still respond, this will establish the observe relation internally
       // but the response will be suppressed by StackBottomAdapter
       exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
       
@@ -333,7 +334,7 @@ public class MulticastObservableResource extends CoapResource {
         // Step 6-7: Create and deliver phantom request
         // Note: First client is NOT added to pending clients - it will continue
         // to handleGET after phantom completes and receive informative response there
-        final Request phantomExchange = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange, false);
+        final Request phantomRequest = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange, false);
 
         // The phantom's observe relation will be established during response handling
         // via ObserveRelation.onResponse()
@@ -341,7 +342,7 @@ public class MulticastObservableResource extends CoapResource {
         // ObserveLayer can detect it and set the phantom request flag
         LOGGER.debug("Injecting phantom request into stack for {} with token {}", resourceUri, multicastToken);
         CoapEndpoint endpoint = (CoapEndpoint) exchange.advanced().getEndpoint();
-        endpoint.sendRequest(phantomExchange);
+        endpoint.sendRequest(phantomRequest);
         
         LOGGER.debug("Return from injection phantom request into stack for {} with token {}", resourceUri, multicastToken);
 

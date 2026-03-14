@@ -216,7 +216,14 @@ public abstract class Encryptor {
 				if (isRequest && isDetReq) {
 					ctx = ((GroupSenderCtx) ctx).getDeterministicSenderCtx();
 				}
-				
+				LOGGER.debug("Before updateAADForGroup - isPhantom: {}", 
+					    message instanceof Request && ((Request) message).getIsPhantomRequest());
+					LOGGER.debug("Before updateAADForGroup - message class: {}", 
+					    message.getClass().getName());
+					LOGGER.debug("updateAADForGroup entry - isPhantom: {}",
+						    message instanceof Request && ((Request) message).getIsPhantomRequest());
+						LOGGER.debug("updateAADForGroup entry - message class: {}",
+						    message.getClass().getName());
 				// Update external AAD value for Group OSCORE
 				aad = OSSerializer.updateAADForGroup(ctx, aad, message);
 				

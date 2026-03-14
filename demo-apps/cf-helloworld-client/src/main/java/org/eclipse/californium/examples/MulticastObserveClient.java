@@ -158,6 +158,7 @@ public class MulticastObserveClient {
 
     try {
       multicastReceiver.start();
+      multicastReceiver.setLoopbackMode(true);
       LOGGER.info("Multicast receiver started on {} port {}", groupAddr, port);
     } catch (java.net.BindException ex) {
       LOGGER.warn("Bind to multicast address failed, retrying with port only: {}", ex.getMessage());

@@ -41,6 +41,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.eclipse.californium.core.coap.CoAP.Type;
+import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.coap.EmptyMessage;
 import org.eclipse.californium.core.coap.MessageObserverAdapter;
 import org.eclipse.californium.core.coap.Request;
@@ -120,6 +121,15 @@ public class ObserveLayer extends AbstractLayer {
 			// where multicast notifications should be sent
 			InetSocketAddress multicastAddress = GroupObservationsInfo.getInstance().getMulticastAddress();
 			request.setSourceContext(new org.eclipse.californium.elements.UdpEndpointContext(multicastAddress));
+			exchange.getRequest().setSourceContext(new org.eclipse.californium.elements.UdpEndpointContext(multicastAddress));
+			GroupObservationsInfo groupObservationInfo = GroupObservationsInfo.getInstance();
+
+			List<CoapExchange> pendingClients = groupObservationInfo.getPendingClients(request.getURI());
+			for (CoapExchange clientExchange: pendingClients) {
+				LOGGER.debug("setting complete for client exchange: {}", clientExchange.getSourceAddress());
+				clientExchange.advanced().setComplete();
+			}  
+			
 			
 			LOGGER.info("Recognized phantom request for {} with token {}. Changed source to multicast: {}",
 					request.getOptions().getUriPathString(), request.getToken(), multicastAddress);
@@ -208,10 +218,12 @@ public class ObserveLayer extends AbstractLayer {
     }
 		// For phantom exchanges (multicast observe notifications), ensure the response
 		// goes to the multicast address. The exchange.isPhantomRequest() flag was set
-		// during the initial phantom request setup.
+		// during the initial phantom request 'setup.
 		if (response.isNotification() && exchange.isPhantomRequest()) {
+			exchange.setPhantomRequest(true);
 			LOGGER.info("Sending multicast notification to: {}", 
 					exchange.getRequest().getSourceContext().getPeerAddress());
+			exchange.getResponse().setDestinationContext(exchange.getRequest().getSourceContext());
 		}
     
 		lower().sendResponse(exchange, response);

@@ -23,6 +23,7 @@ import java.net.SocketException;
 
 import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.core.observe.ObserveRelation;
+import org.eclipse.californium.core.server.resources.Resource;
 import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.CoapServer;
@@ -110,6 +111,9 @@ public class AHelloWorldServer extends CoapServer {
     add(new HelloWorldResource());
     add(new ObservableResource());
     add(new MulticastObservableResource("mult", true, this.getMessageDeliverer()));
+    for (Resource res : this.getRoot().getChildren()) {
+		System.out.print(res.getURI() + " ");
+	}
 }
 
 	/*

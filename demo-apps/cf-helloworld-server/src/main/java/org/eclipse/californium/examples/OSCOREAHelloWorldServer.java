@@ -215,7 +215,8 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		
 		//resource.add(new HelloWorldResource(true));
 	    
-		  resource.add(new ObservableResource(server));
+		resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
+	    resource.add(new ObservableResource(server));
 	    resource.add(new OSCOREMulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer()));
 	    //resource.add(new MulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer()));
 	    server.start();
@@ -255,22 +256,27 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 		// If OSCORE is being used set the context information
 		if (useOSCORE) {
-
+      
+      //outgoing context
 			byte[] gmPublicKey = gm_public_key_bytes;
 			GroupCtx commonCtx = new GroupCtx(master_secret, master_salt, alg, kdf, group_identifier, algCountersign,
 					algGroupEnc, algKeyAgreement, gmPublicKey);
-
+      
 			commonCtx.addSenderCtxCcs(server_id, server_private_key);
 			
 			commonCtx.addRecipientCtxCcs(sender_1_ID, REPLAY_WINDOW, sender_1_public_key);
 			commonCtx.addRecipientCtxCcs(sender_2_ID, REPLAY_WINDOW, sender_2_public_key);
-			//commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, server_public_key);
+
 			
+			commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, server_public_key);
+      
 			commonCtx.setResponsesIncludePartialIV(false);
 			commonCtx.setPairwiseModeResponses(false);
-
+      
 			OSCoreCtx.DISABLE_REPLAY_CHECKS = true;
-			db.addContext("127.0.0.1", commonCtx);
+			db.addContext("OSCORE-mult", commonCtx);
+			
+			db.addContext("coap://127.0.0.1/OSCORE-mult", commonCtx);
 
 			GroupObservationsInfo.getInstance().setSender_ID(server_id);
 			OSCoreCoapStackFactory.useAsDefault(db);

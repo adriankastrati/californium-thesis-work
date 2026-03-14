@@ -20,6 +20,8 @@ import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
+import org.eclipse.californium.core.network.serialization.DataParser;
+import org.eclipse.californium.core.network.serialization.DataParserTest.CustomUdpDataParser;
 import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.cose.AlgorithmID;
 import org.eclipse.californium.elements.AddressEndpointContext;
@@ -30,10 +32,14 @@ import org.eclipse.californium.elements.config.UdpConfig;
 import org.eclipse.californium.elements.util.Bytes;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.elements.util.StringUtil;
+import org.eclipse.californium.oscore.CoapOSException;
 import org.eclipse.californium.oscore.HashMapCtxDB;
 import org.eclipse.californium.oscore.OSCoreCoapStackFactory;
+import org.eclipse.californium.oscore.OSCoreCtx;
 import org.eclipse.californium.oscore.OSException;
+import org.eclipse.californium.oscore.OscoreOptionDecoder;
 import org.eclipse.californium.oscore.group.GroupCtx;
+import org.eclipse.californium.oscore.group.GroupRecipientCtx;
 import org.eclipse.californium.oscore.group.MultiKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -142,11 +148,44 @@ public class OSCOREMulticastObserveClient {
         InetAddress groupAddr = groupSock.getAddress();
         int groupPort = groupSock.getPort();
         Token multicastToken = info.getToken();
+        
+        
+        // Parse the raw CoAP message bytes into a Request object
+        try {
+        	byte[] phantomRequestBytes = info.getPhReq();
+            CustomUdpDataParser parser = new CustomUdpDataParser(true);
+            // Parse the raw CoAP message bytes into a Request object
+            Request parsedRequest = (Request) parser.parseMessage(phantomRequestBytes);
+            
+			OscoreOptionDecoder optionDecoder = new OscoreOptionDecoder(parsedRequest.getOptions().getOscore());
+			
+			byte[] idContext = optionDecoder.getIdContext();
+			byte[] partialIV = optionDecoder.getPartialIV();
+			byte[] kid = optionDecoder.getKid();
 
+			LOGGER.info("idContext: {}", idContext);
+			LOGGER.info("kid: {}", kid);
+			LOGGER.info("Partial IV: {}", partialIV);
+			try {
+			    OSCoreCtx ctx = db.getContext(server_id, group_identifier);
+			    if (ctx instanceof GroupRecipientCtx) {
+			        GroupCtx commonCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
+			        commonCtx.setPhantomRequestValues(kid, partialIV, idContext);
+			        LOGGER.info("Set phantom request values on GroupCtx");
+			    }
+			} catch (Exception e) {
+			    LOGGER.error("Failed to set phantom request values", e);
+			}
+			
+			
+		} catch (CoapOSException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+        
+		LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
         LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
         LOGGER.info("Token: {}", multicastToken.getAsString());
-        LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
-
         if (!receiverReady) {
           try {
             // Build receiver stack (join group + bind port) - MUST come first to create multicastClient
@@ -166,7 +205,7 @@ public class OSCOREMulticastObserveClient {
             LOGGER.error("Failed to activate multicast receiver", e);
           }
         } else {
-          LOGGER.info("Multicast receiver already active (ignoring extra informative response).");
+          LOGGER.info("Multicast receiver already active");
         }
 
         return;
@@ -278,6 +317,7 @@ public class OSCOREMulticastObserveClient {
 
     try {
       multicastReceiver.start();
+      multicastReceiver.setLoopbackMode(true);
       LOGGER.info("Multicast receiver started on {} port {}", groupAddr, port);
     } catch (java.net.BindException ex) {
       LOGGER.warn("Bind to multicast address failed, retrying with port only: {}", ex.getMessage());
@@ -333,9 +373,9 @@ public class OSCOREMulticastObserveClient {
 	      handler.waitForNotifications();
 			
 	      // Deregister observe
-	      Request deregisterRequest = createRequest(Code.GET, requestURI);
-	      deregisterRequest.getOptions().setObserve(1); // Observe=1 means cancel
-	      deregisterRequest.send();
+	      //Request deregisterRequest = createRequest(Code.GET, requestURI);
+	      //deregisterRequest.getOptions().setObserve(1); // Observe=1 means cancel
+	      //deregisterRequest.send();
 	      
 	        if (multicastClient != null) multicastClient.shutdown();
 	  } catch (Exception e) {

@@ -188,7 +188,6 @@ public class Request extends Message {
 	 * {@code null}, if ping-request.
 	 */
 	private final CoAP.Code code;
-
 	/** Marks this request as multicast request */
 	private boolean multicast;
 
@@ -197,14 +196,15 @@ public class Request extends Message {
 
 	private boolean ready;
 
-  private boolean shouldSend = true;
+	private boolean shouldSend = true;
 
-  public boolean getShouldSend(){
-    return shouldSend;
-  }
-  public void setShouldSend(boolean b){
-    shouldSend = b;
-  }
+	public boolean getShouldSend(){
+		return shouldSend;
+	}
+	public void setShouldSend(boolean b){
+		shouldSend = b;
+	}
+  
 	/**
 	 * Request's scheme.
 	 * 

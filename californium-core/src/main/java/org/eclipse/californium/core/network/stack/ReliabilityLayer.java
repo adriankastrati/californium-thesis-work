@@ -138,7 +138,7 @@ public class ReliabilityLayer extends AbstractLayer {
 	 */
 	@Override
 	public void sendResponse(Exchange exchange, Response response) {
-		LOGGER.debug("{} send response {}", exchange, response);
+		LOGGER.debug("{} send response {} to {}", exchange, response, response.getDestinationContext().getPeerAddress());
 		prepareResponse(exchange, response);
 		if (exchange.getCurrentRequest().isMulticast() && response.getType() == Type.NON) {
 			int leisure;

@@ -518,11 +518,10 @@ public class UDPConnector implements Connector {
 				try {
 					raw.onContextEstablished(connectionContext);
 					if (datagram.getAddress().isMulticastAddress()) {
-            LOGGER.debug("sending via multicast");
-						MulticastSocket mcSocket = multicastSendSocket;
+            MulticastSocket mcSocket = multicastSendSocket;
 						if (mcSocket != null) {
-							mcSocket.send(datagram);
-              
+              mcSocket.send(datagram);
+              LOGGER.debug("sending via multicast");
 						}
 					} else {
             LOGGER.debug("sending via unicast");

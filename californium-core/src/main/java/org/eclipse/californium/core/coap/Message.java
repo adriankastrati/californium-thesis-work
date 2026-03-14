@@ -269,7 +269,13 @@ public abstract class Message {
 	 * {@code 0} if neither has happened yet.
 	 */
 	private volatile long nanoTimestamp;
-
+  private boolean isPhantomRequest = false;
+  public void setIsPhantomRequest(boolean isPhantom){
+    this.isPhantomRequest = isPhantom;
+  }
+  public boolean getIsPhantomRequest(){
+    return this.isPhantomRequest;
+  }
 	/**
 	 * Creates a new message with no specified message type.
 	 */

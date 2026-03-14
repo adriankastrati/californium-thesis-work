@@ -6,7 +6,7 @@ import java.util.Random;
 	import java.util.concurrent.CountDownLatch;
 	import java.util.concurrent.TimeUnit;
 
-	import org.eclipse.californium.TestTools;
+	//import org.eclipse.californium.TestTools;
 	import org.eclipse.californium.core.CoapClient;
 import org.eclipse.californium.core.CoapHandler;
 import org.eclipse.californium.core.CoapObserveRelation;

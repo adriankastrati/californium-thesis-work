@@ -665,6 +665,7 @@ public class CoapEndpoint implements Endpoint, Executor {
 
 	@Override
 	public void sendRequest(final Request request) {
+		LOGGER.debug("Sending request, line 668");
 		if (!started) {
 			request.cancel();
 			return;
@@ -938,7 +939,7 @@ public class CoapEndpoint implements Endpoint, Executor {
 
 		@Override
 		public void sendRequest(final Exchange exchange, final Request request) {
-
+			LOGGER.debug("Sending request, line 941");
 			assertMessageHasDestinationAddress(request);
 			exchange.setCurrentRequest(request);
 			matcher.sendRequest(exchange);

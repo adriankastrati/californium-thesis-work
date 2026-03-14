@@ -203,7 +203,6 @@ public class GroupRecipientCtx extends OSCoreCtx {
 
 		this.pairwiseRecipientKey = commonCtx.derivePairwiseRecipientKey(this.getRecipientId(), this.getRecipientKey(),
 				this.getPublicKey(), this.getPublicKeyRaw());
-
 	}
 
 

@@ -91,6 +91,7 @@ public abstract class Decryptor {
 		byte[] nonce = null;
 		byte[] partialIV = null;
 		byte[] aad = null;
+
 		
 		// DET_REQ
 		boolean isDetReq = false; // Will be set to true in case of a deterministic request
@@ -188,9 +189,15 @@ public abstract class Decryptor {
 				LOGGER.error("Decryption failed: the arrived response is not connected to a request we sent");
 				throw new OSException(ErrorDescriptions.DECRYPTION_FAILED);
 			}
-
+    
+      GroupCtx groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
 			//Sequence number taken from original request
-			seq = seqByToken;
+    if (groupCtx != null && groupCtx.hasPhantomRequestValues()) {
+      byte[] phantomPiv = groupCtx.getPhantomRequestPiv();
+      seq = ByteBuffer.wrap(expandToIntSize(phantomPiv)).getInt();
+    } else {
+        seq = seqByToken;
+    }
 
 			if (piv == null) {
 				//Use the partialIV that arrived in the original request (response has no partial IV)
@@ -219,12 +226,17 @@ public abstract class Decryptor {
 			// If it is a response to a deterministic request, force the Sender ID
 			// of the deterministic client in 'request_kid' of the external_aad
 			if (isDetReq) {
-				GroupCtx groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
+				groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
 				senderId = groupCtx.getDeterministicSenderCtx().getSenderId();
-			}
-			else {
-				senderId = ctx.getSenderId();
-			}
+		    } else {
+		    	// For multicast notifications, use the phantom request kid
+		    	 groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
+		    if (groupCtx != null && groupCtx.hasPhantomRequestValues()) {
+		        senderId = groupCtx.getPhantomRequestKid();
+		    } else {
+		        senderId = ctx.getSenderId();
+		    }
+		  }
 
 			//Nonce calculation uses partial IV in response (if present).
 			//AAD calculation always uses partial IV (seq. nr.) of original request.  
@@ -292,13 +304,19 @@ public abstract class Decryptor {
 				sign = prepareCheckSignature(enc, ctx, aad, message);
 				
 			} else {
-				// DET_REQ (extended here)
-				// This message is protected with the pairwise mode, and it is neither
-				// a deterministic request nor a response to a deterministic request.
-				// The decryption key is simply the pairwise recipient key.
-				if (!isDetReq) {
-					key = ((GroupRecipientCtx) ctx).getPairwiseRecipientKey();
-				}
+			    if (!isDetReq) {
+			        // For phantom requests (self-sent by server), use the pairwise
+			        // sender key since the message was encrypted with that key
+			        if (message.getIsPhantomRequest()) {
+			        	LOGGER.debug("phantom request");
+			            key = ((GroupRecipientCtx) ctx).getCommonCtx()
+			                      .getSenderCtx()
+			                      .getPairwiseSenderKey(ctx.getRecipientId());
+			        } else {
+			            key = ((GroupRecipientCtx) ctx).getPairwiseRecipientKey();
+			        }
+			    }
+				
 				else if (isDetReq && isRequest) {
 					// Derive the deterministic decryption key, to use for decrypting the deterministic request
 
@@ -342,15 +360,31 @@ public abstract class Decryptor {
 
 		// Check signature before decrypting
 		if (groupModeMessage) {
-			// Verify the signature
-			boolean signatureCorrect = checkSignature(enc, sign);
-			LOGGER.debug("Signature verification succeeded: {}", signatureCorrect);
+			if (message.getIsPhantomRequest()) {
+				LOGGER.debug("phantom request, not checking signature verification");
+				
+			}
+			else{				
+				LOGGER.debug("Checking signature verification");
+				
+				boolean signatureCorrect = true;
+				// Verify the signature
+				
+				signatureCorrect = checkSignature(enc, sign);
+				LOGGER.debug("Signature verification succeeded: {}", signatureCorrect);
+			}
+
 		}
 
 		try {
 			// TODO: Get and set Recipient ID (KID) here too?
 			enc.addAttribute(HeaderKeys.Algorithm, decryptionAlg.AsCBOR(), Attribute.DO_NOT_SEND);
 			enc.addAttribute(HeaderKeys.IV, CBORObject.FromObject(nonce), Attribute.DO_NOT_SEND);
+			LOGGER.debug("=== DECRYPT DEBUG ===");
+			LOGGER.debug("key: {}", Utils.toHexString(key));
+			LOGGER.debug("nonce: {}", Utils.toHexString(nonce));
+			LOGGER.debug("aad: {}", Utils.toHexString(aad));
+			LOGGER.debug("=====================");
 			plaintext = enc.decrypt(key);
 
 		} catch (CoseException e) {
