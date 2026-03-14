@@ -151,14 +151,14 @@ public class MulticastObserveClient {
     UdpMulticastConnector.Builder mcBuilder = new UdpMulticastConnector.Builder()
         .setConfiguration(config)
         .setMulticastReceiver(true)
-        .setLocalAddress(groupAddr, port)
+        .setLocalPort(port)
         .addMulticastGroup(groupAddr, ni);
     
     multicastReceiver = mcBuilder.build();
+    multicastReceiver.setLoopbackMode(true);
 
     try {
       multicastReceiver.start();
-      multicastReceiver.setLoopbackMode(true);
       LOGGER.info("Multicast receiver started on {} port {}", groupAddr, port);
     } catch (java.net.BindException ex) {
       LOGGER.warn("Bind to multicast address failed, retrying with port only: {}", ex.getMessage());

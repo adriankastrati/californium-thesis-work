@@ -56,6 +56,7 @@ import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.EndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.util.StringUtil;
+import org.eclipse.californium.oscore.CoapOSException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -124,6 +125,7 @@ public class ObserveLayer extends AbstractLayer {
 			exchange.getRequest().setSourceContext(new org.eclipse.californium.elements.UdpEndpointContext(multicastAddress));
 			GroupObservationsInfo groupObservationInfo = GroupObservationsInfo.getInstance();
 
+			LOGGER.debug("Setting complete for previous observe relations to resource: {}",  request.getURI());
 			List<CoapExchange> pendingClients = groupObservationInfo.getPendingClients(request.getURI());
 			for (CoapExchange clientExchange: pendingClients) {
 				LOGGER.debug("setting complete for client exchange: {}", clientExchange.getSourceAddress());
