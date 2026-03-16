@@ -56,7 +56,6 @@ import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.EndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.util.StringUtil;
-import org.eclipse.californium.oscore.CoapOSException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

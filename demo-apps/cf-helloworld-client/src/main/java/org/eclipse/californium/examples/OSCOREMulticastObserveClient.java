@@ -41,7 +41,10 @@ import org.eclipse.californium.oscore.OscoreOptionDecoder;
 import org.eclipse.californium.oscore.group.GroupCtx;
 import org.eclipse.californium.oscore.group.GroupRecipientCtx;
 import org.eclipse.californium.oscore.group.MultiKey;
+import org.eclipse.californium.core.coap.Response;
+
 import org.slf4j.Logger;
+
 import org.slf4j.LoggerFactory;
 
 import net.i2p.crypto.eddsa.EdDSASecurityProvider;
@@ -159,6 +162,7 @@ public class OSCOREMulticastObserveClient {
             
 			OscoreOptionDecoder optionDecoder = new OscoreOptionDecoder(parsedRequest.getOptions().getOscore());
 			
+			
 			byte[] idContext = optionDecoder.getIdContext();
 			byte[] partialIV = optionDecoder.getPartialIV();
 			byte[] kid = optionDecoder.getKid();
@@ -176,8 +180,7 @@ public class OSCOREMulticastObserveClient {
 			} catch (Exception e) {
 			    LOGGER.error("Failed to set phantom request values", e);
 			}
-			
-			
+
 		} catch (CoapOSException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -346,7 +349,7 @@ public class OSCOREMulticastObserveClient {
     LOGGER.info("Joined group {} on interface {} port {}", groupAddr, ni.getDisplayName(), port);
   }
 
-  public static void main(String requestURI, int timeout, int sender) {
+  public static void main(String requestURI, int sender) {
 		 try {
 			 Configuration config = Configuration.getStandard();
 	      Configuration.setStandard(config);
@@ -367,7 +370,7 @@ public class OSCOREMulticastObserveClient {
 	      Request multicastRequest = createRequest(Code.GET, requestURI);
 	    
 	      
-	      MulticastObserveHandler handler = new MulticastObserveHandler(4);
+	      MulticastObserveHandler handler = new MulticastObserveHandler(100);
 	      client.observe(multicastRequest, handler);
 	      
 	      handler.waitForNotifications();

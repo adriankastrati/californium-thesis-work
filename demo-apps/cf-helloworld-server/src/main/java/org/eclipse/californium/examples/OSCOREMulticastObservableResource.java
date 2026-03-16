@@ -114,40 +114,11 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
   /**
    * Send informative response (5.03 Service Unavailable) with tp_info to a client.
    */
-  private void sendInformativeResponse(CoapExchange exchange, ObservationInfo obsInfo) {
-    Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
-    
-    // Set Content-Format to application/informative-response+cbor
-    response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
-    response.setConfirmable(true);
-    // Serialize ObservationInfo to CBOR payload
-    byte[] payload = obsInfo.toCbor();
-    response.setPayload(payload);
-    
-    
-    LOGGER.debug("Sending informative response (5.03) to client {} with token {}. ObservationInfo: {}",
-        exchange.getSourceSocketAddress(), exchange.advanced().getRequest().getToken(), obsInfo);
-    LOGGER.debug("payload: {}",response.toString());
-    
-    // Send the informative response
-    exchange.respond(response);
-  }
-  
-  /**
-   * Send informative responses to all pending clients waiting for group observation setup.
-   */
-  private void sendInformativeResponsesToClients(String uriPath, ObservationInfo obsInfo) {
-    GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
-    List<CoapExchange> pendingClients = groupInfo.removePendingClients(uriPath);
-    
-    LOGGER.info("Sending informative responses to {} pending clients for resource {}", 
-        pendingClients.size(), uriPath);
-    
-    for (CoapExchange clientExchange : pendingClients) {
-      Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
+  private void sendInformativeResponse(CoapExchange clientExchange, ObservationInfo obsInfo) {
+	  Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
       response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
 
-      byte[] payload = groupInfo.getGroupObservationInfo(uriPath).toCbor();
+      byte[] payload = obsInfo.toCbor();
       response.setPayload(payload);
       
       // Set destination from original request source
@@ -163,7 +134,21 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       clientExchange.advanced().setCryptographicContextID(null);
 
       clientExchange.respond(response);
-
+  }
+  
+  /**
+   * Send informative responses to all pending clients waiting for group observation setup.
+   */
+  private void sendInformativeResponsesToClients(String uriPath) {
+    GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
+    List<CoapExchange> pendingClients = groupInfo.removePendingClients(uriPath);
+    
+    LOGGER.info("Sending informative responses to {} pending clients for resource {}", 
+        pendingClients.size(), uriPath);
+    
+    for (CoapExchange clientExchange : pendingClients) {
+    	sendInformativeResponse(clientExchange, groupInfo.getGroupObservationInfo(uriPath));
+    	
     }
   }
   
@@ -216,14 +201,24 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       LOGGER.info("handle phantom request for {} with content: {}", uriPath, this.content);
 
       // Send informative response to all pending clients
-      sendInformativeResponsesToClients(uriPath, observationInfo);
+      sendInformativeResponsesToClients(uriPath);
     }else
       {
         // This is a notification for an established phantom exchange
         // Just send the normal response - it will go to multicast address
         LOGGER.info("Sending multicast notification for {} with content: {}", uriPath, this.content);
         
-        exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
+        Response notification = new Response(ResponseCode.CONTENT);
+        notification.setPayload(Integer.toString(this.content));
+        notification.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
+        
+        ObservationInfo observationInfo = groupObservationsInfo.getGroupObservationInfo(uriPath);
+        if (observationInfo != null) {
+        observationInfo.setLastNotif(notification);
+        }
+        
+        exchange.respond(notification);
+
         return;
       }
   }

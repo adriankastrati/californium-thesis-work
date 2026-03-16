@@ -73,11 +73,15 @@ public class AClient {
 	        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
 	        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
 	        break;
-	      case "OSCORE-mult":
+	      case "OSCORE-mult-1":
 		        System.out.println(uri+"OSCORE-mult");
-		        OSCOREMulticastObserveClient.main(uri+"OSCORE-mult",1000, 2);
+		        OSCOREMulticastObserveClient.main(uri+"OSCORE-mult", 1);
 		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
 		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
+		        break;
+	      case "OSCORE-mult-2":
+		        System.out.println(uri+"OSCORE-mult");
+		        OSCOREMulticastObserveClient.main(uri+"OSCORE-mult", 2);
 		        break;
 	      case "OSCORE-obs":
 		        System.out.println(uri+"OSCORE-obs");
