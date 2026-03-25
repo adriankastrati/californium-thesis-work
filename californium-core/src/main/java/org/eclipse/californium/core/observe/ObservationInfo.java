@@ -191,6 +191,33 @@ public class ObservationInfo {
     }
 
     /**
+     * Extracts the transport-independent bytes from a full UDP CoAP wire-format message.
+     *
+     * UDP wire format: [Ver|Type|TKL (1 byte)] [Code (1 byte)] [MID (2 bytes)] [Token (TKL bytes)] [Options...] [0xFF Payload]
+     * Transport-independent (Section 4.2.2): [Code (1 byte)] [Options...] [0xFF Payload]
+     *
+     * @param wireBytes the full serialized CoAP message
+     * @return the transport-independent byte serialization (code + options + optional payload)
+     */
+    public static byte[] extractTransportIndependent(byte[] wireBytes) {
+        if (wireBytes == null || wireBytes.length < 4) {
+            throw new IllegalArgumentException("Wire bytes too short for CoAP header");
+        }
+        int tkl = wireBytes[0] & 0x0F;
+        int code = wireBytes[1] & 0xFF;
+        // Header is 4 bytes, then tkl bytes of token, then options+payload
+        int dataStart = 4 + tkl;
+        if (dataStart > wireBytes.length) {
+            throw new IllegalArgumentException("Wire bytes too short for indicated token length");
+        }
+        // Build: code (1 byte) + options + optional payload
+        byte[] result = new byte[1 + (wireBytes.length - dataStart)];
+        result[0] = (byte) code;
+        System.arraycopy(wireBytes, dataStart, result, 1, wireBytes.length - dataStart);
+        return result;
+    }
+
+    /**
      * Parse ObservationInfo from CBOR bytes.
      * 
      * @param cborBytes the CBOR encoded bytes
@@ -376,27 +403,36 @@ public class ObservationInfo {
             return new InetSocketAddress(host, port);
         }
 
-        /** Serializes CRI to CBOR array: [ scheme, host-ip, port? ] */
+        /** Serializes CRI to CBOR array: [ scheme-id, authority ] where authority = [ host-ip, ?port ] */
         CBORObject toCbor() {
-            CBORObject array = CBORObject.NewArray();
-            array.Add(schemeId);
+            CBORObject cri = CBORObject.NewArray();
+            cri.Add(schemeId);
+            // authority = [ host-ip, ?port ]
+            CBORObject authority = CBORObject.NewArray();
             if (host != null) {
-                array.Add(CBORObject.FromObject(host.getAddress()));
+                authority.Add(CBORObject.FromObject(host.getAddress()));
             }
             if (!isDefaultPort()) {
-                array.Add(port);
+                authority.Add(port);
             }
-            return array;
+            cri.Add(authority);
+            return cri;
         }
 
         static Cri fromCbor(CBORObject array) {
             if (array == null || array.getType() != CBORType.Array || array.size() < 2) {
-                throw new IllegalArgumentException("CRI must be a CBOR array with at least [scheme, host]");
+                throw new IllegalArgumentException("CRI must be a CBOR array with at least [scheme-id, authority]");
             }
             Cri cri = new Cri();
             cri.setSchemeId(array.get(0).AsInt32Value());
 
-            byte[] hostBytes = array.get(1).GetByteString();
+            // authority = [ host-ip, ?port ]
+            CBORObject authority = array.get(1);
+            if (authority.getType() != CBORType.Array || authority.size() < 1) {
+                throw new IllegalArgumentException("CRI authority must be an array with at least [host]");
+            }
+
+            byte[] hostBytes = authority.get(0).GetByteString();
             if (hostBytes.length != 4 && hostBytes.length != 16) {
                 throw new IllegalArgumentException("CRI host must be 4 (IPv4) or 16 (IPv6) bytes, got " + hostBytes.length);
             }
@@ -406,8 +442,8 @@ public class ObservationInfo {
                 throw new IllegalArgumentException("Invalid CRI host", e);
             }
 
-            if (array.size() >= 3) {
-                cri.setPort(array.get(2).AsInt32Value());
+            if (authority.size() >= 2) {
+                cri.setPort(authority.get(1).AsInt32Value());
             } else {
                 cri.setPort(cri.getSchemeId() == SCHEME_COAPS
                         ? CoAP.DEFAULT_COAP_SECURE_PORT : CoAP.DEFAULT_COAP_PORT);

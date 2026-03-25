@@ -153,13 +153,21 @@ public class OSCOREMulticastObserveClient {
         Token multicastToken = info.getToken();
         
         
-        // Parse the raw CoAP message bytes into a Request object
+        // Parse the transport-independent ph_req bytes (Section 4.2.2: code + options + payload)
         try {
         	byte[] phantomRequestBytes = info.getPhReq();
-            CustomUdpDataParser parser = new CustomUdpDataParser(true);
-            // Parse the raw CoAP message bytes into a Request object
-            Request parsedRequest = (Request) parser.parseMessage(phantomRequestBytes);
-            
+            // First byte is code, remaining bytes are serialized options + optional payload
+            int code = phantomRequestBytes[0] & 0xFF;
+            byte[] optionsAndPayload = new byte[phantomRequestBytes.length - 1];
+            System.arraycopy(phantomRequestBytes, 1, optionsAndPayload, 0, optionsAndPayload.length);
+
+            // Parse options from the transport-independent bytes
+            Request parsedRequest = new Request(Code.valueOf(code));
+            DataParser parser = new CustomUdpDataParser(true);
+            parser.parseOptionsAndPayload(
+                new org.eclipse.californium.elements.util.DatagramReader(optionsAndPayload),
+                parsedRequest);
+
 			OscoreOptionDecoder optionDecoder = new OscoreOptionDecoder(parsedRequest.getOptions().getOscore());
 			
 			

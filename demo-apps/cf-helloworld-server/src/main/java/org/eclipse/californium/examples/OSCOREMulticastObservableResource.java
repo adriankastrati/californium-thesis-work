@@ -198,8 +198,9 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       // Clear the setup-in-progress flagsss
       groupObservationsInfo.setGroupObservationSetupInProgress(uriPath, false);
 
-      //Add phantom request
-      groupObservationsInfo.getGroupObservationInfo(uriPath).setPhReq(exchange.advanced().getProtectedRequest());
+      //Add phantom request as transport-independent bytes (Section 4.2.2: code + options + payload)
+      groupObservationsInfo.getGroupObservationInfo(uriPath).setPhReq(
+          ObservationInfo.extractTransportIndependent(exchange.advanced().getProtectedRequest()));
 
       // Still respond, this will establish the observe relation internally
       // but the response will be suppressed by StackBottomAdapter
