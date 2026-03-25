@@ -257,7 +257,7 @@ public class OSCOREMulticastObserveClient {
 
 				commonCtx.addSenderCtxCcs(sender_id, sender_private_key);
 				commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, new MultiKey(server_public_key_bytes));
-				db.addContext("coap://127.0.0.1/OSCORE-mult", commonCtx);
+				db.addContext("coap://172.20.10.2:5683/OSCORE-mult", commonCtx);
 
 				OSCoreCoapStackFactory.useAsDefault(db);				
 

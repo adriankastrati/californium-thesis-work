@@ -228,6 +228,10 @@ public abstract class Decryptor {
 			if (isDetReq) {
 				groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
 				senderId = groupCtx.getDeterministicSenderCtx().getSenderId();
+		    } else if (groupCtx != null && groupCtx.hasPhantomRequestValues()) {
+		        // For responses to phantom requests, use the phantom request's
+		        // sender ID (request_kid) in the AAD, not the client's sender ID
+		        senderId = groupCtx.getPhantomRequestKid();
 		    } else {
 		        senderId = ctx.getSenderId();
 		  }

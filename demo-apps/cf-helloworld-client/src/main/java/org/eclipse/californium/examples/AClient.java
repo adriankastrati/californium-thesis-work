@@ -31,7 +31,7 @@ public class AClient {
 
 	public static void main(String[] args) throws IOException, ConnectorException, InterruptedException {
 		
-		String uri = "coap://127.0.0.1:5683/";
+		String uri = "coap://172.20.10.2:5683/";
 		String uri_get = "get";
 		String[] resource = new String[]{uri+uri_get};
 		

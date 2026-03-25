@@ -282,7 +282,8 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
         // Deliver phantom request through the CoAP stack so that
         // ObserveLayer can detect it and set the phantom request flag
         LOGGER.debug("Injecting phantom request into stack for {} with token {}", resourceUri, multicastToken);
-        CoapEndpoint endpoint = (CoapEndpoint) exchange.advanced().getEndpoint();
+        CoapEndpoint endpoint = (CoapEndpoint) exchange.advanced().getEndpoint();                                    
+                  
         endpoint.sendRequest(phantomRequest);
         
         LOGGER.debug("Return from injection phantom request into stack for {} with token {}", resourceUri, multicastToken);

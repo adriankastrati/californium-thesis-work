@@ -296,6 +296,9 @@ public class UDPConnector implements Connector {
 		NetworkInterface ni = NetworkInterfacesUtil.getMulticastInterface();
 		if (ni != null) {
 			mcSocket.setNetworkInterface(ni);
+			LOGGER.info("Multicast send socket bound to interface: {}, address: {}", ni.getName(), ni.getInetAddresses());
+		} else {
+			LOGGER.warn("No multicast interface found for multicast send socket");
 		}
 		multicastSendSocket = mcSocket;
 
@@ -529,6 +532,7 @@ public class UDPConnector implements Connector {
 					}
 					raw.onSent();
 				} catch (IOException ex) {
+					LOGGER.debug("Send failed to {}: {}", datagram.getSocketAddress(), ex.getMessage(), ex);
 					raw.onError(ex);
 				}
 			} else {

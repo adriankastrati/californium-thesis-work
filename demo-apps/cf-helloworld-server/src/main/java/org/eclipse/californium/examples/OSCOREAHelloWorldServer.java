@@ -79,18 +79,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		int port = Configuration.getStandard().get(CoapConfig.COAP_PORT);
 		Configuration config = Configuration.getStandard();
 
-		// Loopback endpoint for local unicast
-		InetAddress loopbackAddr = InetAddress.getLoopbackAddress();
-		InetSocketAddress loopbackSocket = new InetSocketAddress(loopbackAddr, port);
-		CoapEndpoint.Builder loopbackBuilder = new CoapEndpoint.Builder();
-		loopbackBuilder.setInetSocketAddress(loopbackSocket);
-		loopbackBuilder.setConfiguration(config);
-		addEndpoint(loopbackBuilder.build());
-		final ProtocolScheduledExecutorService executorService = ExecutorsUtil
-				.newSingleThreadedProtocolExecutor(new DaemonThreadFactory(":CoapEndpoint")); //$NON-NLS-1$
-		this.setExecutor(executorService, isRunning());
-		
-		// Physical interface endpoint for multicast to work
+		// Physical interface endpoint (supports both unicast and multicast)
 		Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
 		if (ipv4 != null) {
 			InetSocketAddress physicalSocket = new InetSocketAddress(ipv4, port);
@@ -100,6 +89,9 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			addEndpoint(physicalBuilder.build());
 			System.out.println("Added physical interface endpoint: " + physicalSocket);
 		}
+		final ProtocolScheduledExecutorService executorService = ExecutorsUtil
+				.newSingleThreadedProtocolExecutor(new DaemonThreadFactory(":CoapEndpoint")); //$NON-NLS-1$
+		this.setExecutor(executorService, isRunning());
 	}
 
 	/*
@@ -208,11 +200,12 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		
 		OSCOREAHelloWorldServer server = new OSCOREAHelloWorldServer();
 		
-		server.OSCORESetup();
-		server.addEndpoint();
 		Resource resource = server.getRoot();
-		Endpoint endpoint = server.getEndpoint(listenPort);
-		
+		InetSocketAddress address = new InetSocketAddress(NetworkInterfacesUtil.getMulticastInterfaceIpv4(), listenPort);
+		server.OSCORESetup(address);
+		server.addEndpoint();
+	    Endpoint endpoint = server.getEndpoint(listenPort);                                                              
+
 		//resource.add(new HelloWorldResource(true));
 	    
 		resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
@@ -244,7 +237,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
     }
 
-	private void OSCORESetup() throws OSException {
+	private void OSCORESetup(InetSocketAddress address) throws OSException {
 		Provider EdDSA = new EdDSASecurityProvider();
 		Security.insertProviderAt(EdDSA, 1);
 
@@ -276,7 +269,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			OSCoreCtx.DISABLE_REPLAY_CHECKS = true;
 			db.addContext("OSCORE-mult", commonCtx);
 			
-			db.addContext("coap://127.0.0.1/OSCORE-mult", commonCtx);
+			db.addContext("coap://"+ address.getHostString()+":"+address.getPort()+"/OSCORE-mult", commonCtx);
 
 			GroupObservationsInfo.getInstance().setSender_ID(server_id);
 			OSCoreCoapStackFactory.useAsDefault(db);
