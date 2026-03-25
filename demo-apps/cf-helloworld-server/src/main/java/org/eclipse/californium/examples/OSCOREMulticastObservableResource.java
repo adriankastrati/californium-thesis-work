@@ -115,7 +115,12 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
    * Send informative response (5.03 Service Unavailable) with tp_info to a client.
    */
   private void sendInformativeResponse(CoapExchange clientExchange, ObservationInfo obsInfo) {
+	  LOGGER.debug("sending first ack");
+	  clientExchange.accept();                                                                                                              
+	 
 	  Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
+      
+	  response.setType(Type.CON); // RFC Section 4.2: informative response MUST be Confirmable
       response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
 
       byte[] payload = obsInfo.toCbor();
@@ -126,12 +131,13 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       response.setToken(clientExchange.advanced().getRequest().getToken());
       
       LOGGER.info("Sending informative response (5.03) to pending client {} with token {}. ObservationInfo: {}",
-          clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(), 
-          clientExchange.advanced().getRequest().getToken(), obsInfo);
+      clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(), 
+      clientExchange.advanced().getRequest().getToken(), obsInfo);
       
       LOGGER.debug("Removing OSCORE option for informative response");
       clientExchange.advanced().getRequest().getOptions().removeOscore();
       clientExchange.advanced().setCryptographicContextID(null);
+      
 
       clientExchange.respond(response);
   }
