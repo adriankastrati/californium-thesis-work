@@ -229,13 +229,7 @@ public abstract class Decryptor {
 				groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
 				senderId = groupCtx.getDeterministicSenderCtx().getSenderId();
 		    } else {
-		    	// For multicast notifications, use the phantom request kid
-		    	 groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
-		    if (groupCtx != null && groupCtx.hasPhantomRequestValues()) {
-		        senderId = groupCtx.getPhantomRequestKid();
-		    } else {
 		        senderId = ctx.getSenderId();
-		    }
 		  }
 
 			//Nonce calculation uses partial IV in response (if present).

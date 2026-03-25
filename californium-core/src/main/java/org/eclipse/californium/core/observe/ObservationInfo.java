@@ -17,9 +17,8 @@ import com.upokecenter.cbor.CBORType;
 
 /**
  * Represents the informative response payload (5.03 Service Unavailable)
- * as defined in draft-ietf-core-observe-multicast-notifications-13.
+ * as defined in draft.
  * 
- * <pre>
  * informative_response_payload = {
  *    0 => array, ; 'tp_info' (transport-specific information)
  *  ? 1 => bstr,  ; 'ph_req' (transport-independent information)
@@ -27,28 +26,22 @@ import com.upokecenter.cbor.CBORType;
  *  ? 3 => uint,  ; 'next_not_before'
  *  ? 4 => ~time  ; 'ending'
  * }
- * </pre>
- * 
- * @see <a href="https://datatracker.ietf.org/doc/draft-ietf-core-observe-multicast-notifications/">
- *      draft-ietf-core-observe-multicast-notifications</a>
  */
 public class ObservationInfo {
 
     // CBOR key 0 — REQUIRED: transport protocol information
     private TpInfo tpInfo;
 
-    // CBOR key 1 — OPTIONAL: byte serialization of phantom request
-    // (transport-independent: code byte + serialized options + optional payload marker + payload)
+    // CBOR key 1 — OPTIONAL: bytes of phantom request
     private byte[] phReq;
 
     // CBOR key 2 — OPTIONAL: byte serialization of the last multicast notification
-    // (transport-independent: code byte + serialized options + optional payload marker + payload)
     private byte[] lastNotifBytes;
 
-    // CBOR key 3 — OPTIONAL: seconds until next notification (uint)
+    // CBOR key 3 — OPTIONAL: seconds until next notification
     private Long nextNotBefore;
 
-    // CBOR key 4 — OPTIONAL: ending time of group observation (~time)
+    // CBOR key 4 — OPTIONAL: ending time of group observatio
     private Long ending;
 
     public ObservationInfo() {
@@ -102,11 +95,7 @@ public class ObservationInfo {
     }
 
     /**
-     * Sets last_notif from a Californium {@link Response} by serializing it
-     * to the transport-independent format defined in Section 4.2.2 of the draft.
-     * <p>
-     * The format is: code_byte | serialized_options | [0xFF | payload]
-     * 
+     * Sets last_notif from bytes of a Californium {@link Response}  
      * @param response the last multicast notification response
      */
     public void setLastNotif(Response response) {
@@ -135,9 +124,9 @@ public class ObservationInfo {
 
     /**
      * Serializes this ObservationInfo to CBOR bytes.
-     * <p>
+     * 
      * CBOR structure (draft-ietf-core-observe-multicast-notifications-13, Section 11):
-     * <pre>
+     * 
      * informative_response_payload = {
      *    0 => array, ; 'tp_info'
      *  ? 1 => bstr,  ; 'ph_req'
@@ -145,7 +134,7 @@ public class ObservationInfo {
      *  ? 3 => uint,  ; 'next_not_before'
      *  ? 4 => ~time  ; 'ending'
      * }
-     * </pre>
+    
      * 
      * @return CBOR encoded bytes
      * @throws IllegalStateException if tp_info is not set
@@ -183,15 +172,13 @@ public class ObservationInfo {
     }
 
     /**
-     * Serializes a CoAP Response to the transport-independent format
-     * defined in Section 4.2.2 of the draft.
-     * <p>
+     * Serializes a CoAP Response to the transport-independent format defined in
+     * in Section 4.2.2
+     * 
      * The format is the concatenation of:
-     * <ol>
-     *   <li>A single byte: the Code field value</li>
-     *   <li>The byte serialization of the complete sequence of CoAP options</li>
-     *   <li>If the message has a non-zero length payload: 0xFF followed by the payload</li>
-     * </ol>
+     * 	A single byte: the Code field value
+     *	The byte serialization of the complete sequence of CoAP options<
+     * 	If the message has a non-zero length payload: 0xFF followed by the payload
      * 
      * @param response the CoAP response to serialize
      * @return the transport-independent byte serialization
@@ -289,12 +276,6 @@ public class ObservationInfo {
     /**
      * Represents the {@code tp_info} CBOR array for CoAP over UDP:
      * {@code [ tpi_server, tpi_client, tpi_token ]}
-     *
-     * <ul>
-     *   <li>tpi_server: CRI coap://SRV_ADDR:SRV_PORT/</li>
-     *   <li>tpi_client: CRI coap://GRP_ADDR:GRP_PORT/</li>
-     *   <li>tpi_token: shared Token T (bytes)</li>
-     * </ul>
      */
     public static class TpInfo {
         private Cri tpiServer;
@@ -351,7 +332,7 @@ public class ObservationInfo {
     }
 
     /**
-     * Constrained Resource Identifier (CRI) per RFC 9290, simplified for CoAP over UDP.
+     * Constrained Resource Identifier (CRI RFC 9290)
      * CBOR array: {@code [ scheme, host-ip, port? ]}
      */
     public static class Cri {
