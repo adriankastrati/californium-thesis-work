@@ -66,6 +66,8 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
   private volatile int content = 1;
   private Timer timer  = new Timer();
   private boolean firstRequestReceived = false;
+  private volatile boolean cancelling = false;
+  private static final int CANCEL_AFTER_NOTIFICATIONS = 5;
 
   private final boolean isGroupObservable;
   private final MessageDeliverer serverMessageDeliverer;
@@ -171,6 +173,30 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
     return isGroupObservable;
   }
 
+  /**
+   * Cancel the group observation per RFC Section 4.5.
+   *
+   * Sends a multicast 5.03 (Service Unavailable) with Token T,
+   * no payload, and no Observe option to the multicast group,
+   * then cleans up all group observation state.
+   */
+  public void cancelGroupObservation() {
+    String uriPath = this.getURI();
+    GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
+
+    if (!groupInfo.isOngoingGroupObservation(uriPath)) {
+      LOGGER.info("No ongoing group observation to cancel for {}", uriPath);
+      return;
+    }
+
+    LOGGER.info("Cancelling group observation for {}", uriPath);
+    cancelling = true;
+    changed();
+    groupInfo.removeGroupObservation(uriPath);
+    cancelling = false;
+    LOGGER.info("Group observation cancelled for {}", uriPath);
+  }
+
   private void handlePhantomRequest(CoapExchange exchange){
     String uriPath =  this.getURI();
     GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
@@ -215,19 +241,27 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       sendInformativeResponsesToClients(uriPath);
     }else
       {
+        // Section 4.5: If cancelling, send 5.03 with no payload and no Observe option
+        if (cancelling) {
+          LOGGER.info("Sending cancellation 5.03 for group observation on {}", uriPath);
+          Response cancellation = new Response(ResponseCode.SERVICE_UNAVAILABLE);
+          exchange.respond(cancellation);
+          return;
+        }
+
         // This is a notification for an established phantom exchange
         // Just send the normal response - it will go to multicast address
         LOGGER.info("Sending multicast notification for {} with content: {}", uriPath, this.content);
-        
+
         Response notification = new Response(ResponseCode.CONTENT);
         notification.setPayload(Integer.toString(this.content));
         notification.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
-        
+
         ObservationInfo observationInfo = groupObservationsInfo.getGroupObservationInfo(uriPath);
         if (observationInfo != null) {
         observationInfo.setLastNotif(notification);
         }
-        
+
         exchange.respond(notification);
 
         return;
@@ -304,13 +338,23 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       }
   }
   class UpdateTask extends TimerTask {
+        private int notificationCount = 0;
+
         @Override
         public void run() {
         	int prev = content;
             content++;
             LOGGER.info("{} -> {}", prev, content);
             changed(); // notify all observers
-          
+
+            if (GroupObservationsInfo.getInstance().isOngoingGroupObservation(getURI())) {
+              notificationCount++;
+              if (notificationCount >= CANCEL_AFTER_NOTIFICATIONS) {
+                LOGGER.info("Reached {} notifications, cancelling group observation", CANCEL_AFTER_NOTIFICATIONS);
+                cancelGroupObservation();
+                notificationCount = 0;
+              }
+            }
         }
       }
 }

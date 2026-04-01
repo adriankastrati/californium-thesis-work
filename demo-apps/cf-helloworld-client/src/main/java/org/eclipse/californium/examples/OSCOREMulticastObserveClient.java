@@ -239,6 +239,22 @@ public class OSCOREMulticastObserveClient {
         return;
       }
 
+      // Section 5.4: Detect cancellation — 5.03 with no payload and no Observe option
+      if (response.getCode() == org.eclipse.californium.core.coap.CoAP.ResponseCode.SERVICE_UNAVAILABLE
+          && !response.getOptions().hasObserve()
+          && (response.getPayload() == null || response.getPayload().length == 0)) {
+        LOGGER.info("Received group observation cancellation (5.03, no payload, no Observe)");
+        if (multicastClient != null) {
+          multicastClient.shutdown();
+        }
+        receiverReady = false;
+        synchronized (this) {
+          notificationCount = targetCount; // unblock waitForNotifications
+          notifyAll();
+        }
+        return;
+      }
+
       // Otherwise it's a normal notification payload
       synchronized (this) {
         notificationCount++;
