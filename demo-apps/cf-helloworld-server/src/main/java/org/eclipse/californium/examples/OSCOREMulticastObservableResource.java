@@ -134,9 +134,6 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(),
       clientExchange.advanced().getRequest().getToken(), obsInfo);
 
-      // The informative response is a unicast error, not a notification.
-      // Remove Observe so the OSCORE layer does not add a Partial IV to the
-      // response, which would cause an AAD mismatch with the client.
       clientExchange.advanced().getRequest().getOptions().removeObserve();
 
       clientExchange.respond(response);
@@ -206,6 +203,13 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       // but the response will be suppressed by StackBottomAdapter
       exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
       LOGGER.info("handle phantom request for {} with content: {}", uriPath, this.content);
+
+      // Section 4.1 Step 6: Build and store INIT_NOTIF so it can be included
+      // as last_notif in informative responses sent to clients.
+      Response initNotif = new Response(ResponseCode.CONTENT);
+      initNotif.setPayload(Integer.toString(this.content));
+      initNotif.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
+      observationInfo.setLastNotif(initNotif);
 
       // Send informative response to all pending clients
       sendInformativeResponsesToClients(uriPath);

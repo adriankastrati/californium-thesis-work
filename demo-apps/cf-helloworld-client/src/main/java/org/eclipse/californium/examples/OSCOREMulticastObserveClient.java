@@ -197,6 +197,23 @@ public class OSCOREMulticastObserveClient {
 		LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
         LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
         LOGGER.info("Token: {}", multicastToken.getAsString());
+
+        // Section 5.2 Steps 5-6: Process last_notif if present
+        byte[] lastNotifBytes = info.getLastNotifBytes();
+        if (lastNotifBytes != null && lastNotifBytes.length > 0) {
+          int notifCode = lastNotifBytes[0] & 0xFF;
+          byte[] notifOptionsAndPayload = new byte[lastNotifBytes.length - 1];
+          System.arraycopy(lastNotifBytes, 1, notifOptionsAndPayload, 0, notifOptionsAndPayload.length);
+          Response lastNotif = new Response(org.eclipse.californium.core.coap.CoAP.ResponseCode.valueOf(notifCode));
+          DataParser notifParser = new CustomUdpDataParser(true);
+          notifParser.parseOptionsAndPayload(
+              new org.eclipse.californium.elements.util.DatagramReader(notifOptionsAndPayload),
+              lastNotif);
+          LOGGER.info("last_notif present - code: {}, payload: {}",
+              lastNotif.getCode(), lastNotif.getPayloadString());
+        } else {
+          LOGGER.info("No last_notif in informative response");
+        }
         if (!receiverReady) {
           try {
             // Build receiver stack (join group + bind port) - MUST come first to create multicastClient
@@ -265,7 +282,7 @@ public class OSCOREMulticastObserveClient {
 
 				commonCtx.addSenderCtxCcs(sender_id, sender_private_key);
 				commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, new MultiKey(server_public_key_bytes));
-				db.addContext("coap://172.20.10.2:5683/OSCORE-mult", commonCtx);
+				db.addContext("coap://192.168.0.108:5683/OSCORE-mult", commonCtx);
 
 				OSCoreCoapStackFactory.useAsDefault(db);				
 
