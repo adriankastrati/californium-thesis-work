@@ -131,7 +131,6 @@ public final class UdpMatcher extends BaseMatcher {
 
 		if (request.isObserve() && 0 == exchange.getFailedTransmissionCount()) {
 			if (exchangeStore.assignMessageId(request) != Message.NONE) {
-        
 				registerObserve(request);
 			} else {
 				LOGGER.debug("message IDs exhausted, could not register outbound observe request for tracking");
@@ -194,7 +193,7 @@ public final class UdpMatcher extends BaseMatcher {
 				}
 			}
 		}
-		LOGGER.info("Sending response {} to {}",response.getPayload(), response.getDestinationContext().getPeerAddress().toString());
+		LOGGER.debug("Sending response to {}", response.getDestinationContext().getPeerAddress());
 		// Only CONs and Observe keep the exchange active (CoAP server side)
 		if (ready && !exchange.getMultiResponse()) {
 			exchange.setComplete();

@@ -134,10 +134,8 @@ public class ObjectSecurityLayer extends AbstractLayer {
 
 	@Override
 	public void sendRequest(final Exchange exchange, final Request request) {
-    LOGGER.debug("Handling request: {}", exchange.getRequest());
-
 		Request req = request;
-		
+
 		if (shouldProtectRequest(request)) {
 			try {
 				// Handle outgoing requests for more data from a responder that
@@ -171,7 +169,6 @@ public class ObjectSecurityLayer extends AbstractLayer {
 					// Use the URI from the option to find the correct context
 					uri = OptionEncoder.getContextUri(request.getOptions().getOscore());
 				}
-        System.out.println(request.toString());
 				if (uri == null) {
 					LOGGER.error(ErrorDescriptions.URI_NULL);
 					throw new OSException(ErrorDescriptions.URI_NULL);
@@ -321,12 +318,11 @@ public class ObjectSecurityLayer extends AbstractLayer {
 					}
 					response.getOptions().setRequestHash(requestHashOption);
 				}
+				// Suppress non-OSCORE response during phantom request setup
 				if (exchange.isSuppressResponse() && !exchange.getRequest().getOptions().hasOscore()) {
-				      // Only suppress during initial setup, not for subsequent notifications
-				      LOGGER.info("Suppressing first response");
-				      exchange.setSuppressResponse(false);
-				      return;
-				    }
+					exchange.setSuppressResponse(false);
+					return;
+				}
 				Response preparedResponse = prepareSend(ctxDb, response, ctx, addPartialIV, outerBlockwise,
 						requestSequenceNumber, requestOption);
 
@@ -351,11 +347,11 @@ public class ObjectSecurityLayer extends AbstractLayer {
 			ctxDb.removeToken(exchange.getCurrentRequest().getToken());
 		}
 
-      if (exchange.isSuppressResponse() && exchange.getRequest().getOptions().hasOscore()) {
-      // Only suppress during initial setup, not for subsequent notifications
-      exchange.setSuppressResponse(false);
-      return;
-    }
+		// Suppress OSCORE-protected response after storing last_notif
+		if (exchange.isSuppressResponse() && exchange.getRequest().getOptions().hasOscore()) {
+			exchange.setSuppressResponse(false);
+			return;
+		}
 		super.sendResponse(exchange, response);
 	}
 
@@ -364,65 +360,50 @@ public class ObjectSecurityLayer extends AbstractLayer {
 		super.sendEmptyMessage(exchange, message);
 	}
 	
+	/**
+	 * Checks whether an OSCORE-protected request is a phantom request by
+	 * verifying the KID matches the server's own sender ID.
+	 */
 	private boolean isPhantomRequest(final Exchange exchange) {
-		LOGGER.debug("Checking if phantom Request");
 		Request request = exchange.getCurrentRequest();
 		Token token = request.getToken();
-		String uriPath = request.getOptions().getUriPathString();
-		
+
 		GroupObservationsInfo groupObservationInfo = GroupObservationsInfo.getInstance();
-		
-		// Condition 1: Does the request have the Observe option with value 0?
+
 		if (request.getOptions().getObserve() == null || request.getOptions().getObserve() != 0) {
 			return false;
 		}
-		
-		// Condition 2: Is token value currently in pendingMulticastNotifTokens for the URI-path?
+
 		if (!groupObservationInfo.isTokenPendingProcess(token)) {
 			return false;
 		}
-		
+
 		try {
-		// Condition 3: Check based on OSCORE protection
-		
-		// Retrieve the OSCORE context associated with this RID and ID
-		// Context
-		OscoreOptionDecoder optionDecoder = new OscoreOptionDecoder(request.getOptions().getOscore());
-		byte[] kid = optionDecoder.getKid();
-		byte[] IDContext = optionDecoder.getIdContext();
-		byte[] sender_id = groupObservationInfo.getSender_ID();
-		//kid is sender ID of server, not oscore-protected, server's source and port
-		if (request.getOptions().hasOscore() && Arrays.equals(kid, sender_id)) {
-		    exchange.setProtectedRequest(request.getBytes());
-		    return true;
-		}else {
+			// Verify KID in OSCORE option matches the server's sender ID
+			OscoreOptionDecoder optionDecoder = new OscoreOptionDecoder(request.getOptions().getOscore());
+			byte[] kid = optionDecoder.getKid();
+			byte[] senderId = groupObservationInfo.getSenderId();
+			if (request.getOptions().hasOscore() && Arrays.equals(kid, senderId)) {
+				exchange.setProtectedRequest(request.getBytes());
+				return true;
+			}
+			return false;
+		} catch (CoapOSException e) {
+			LOGGER.error("Error checking phantom request OSCORE option: {}", e.getMessage());
 			return false;
 		}
-	} catch (CoapOSException e) {
-		// TODO Auto-generated catch block
-		e.printStackTrace();
-		return false;
-	}
-		
 	}
 	
 	@Override
 	public void receiveRequest(Exchange exchange, Request request) {
 		if (isProtected(request)) {
-			
+
 			if (isPhantomRequest(exchange)) {
 				exchange.setProtectedRequest(request.getBytes());
-				LOGGER.debug("Phantom request has oscore option set to {}",(exchange.getRequest().getOptions().hasOscore()));
-        exchange.getRequest().setIsPhantomRequest(true);
-        request.setIsPhantomRequest(true);
-
-				
-				LOGGER.info("Recognized phantom request for {} with token {}",
+				exchange.getRequest().setIsPhantomRequest(true);
+				request.setIsPhantomRequest(true);
+				LOGGER.debug("Recognized OSCORE phantom request for {} with token {}",
 						request.getOptions().getUriPathString(), request.getToken());
-			}else {
-				LOGGER.info("Not phantom request for {} with token {}",
-						request.getOptions().getUriPathString(), request.getToken());
-
 			}
 			
 			OSCoreCtx ctx = null;
@@ -454,9 +435,8 @@ public class ObjectSecurityLayer extends AbstractLayer {
 					request.setMaxResourceBodySize(maxPayloadSize);
 				}
 
-				LOGGER.debug("Calling upper().receiveRequest for protected exchange {} request {}", exchange, request);
 				super.receiveRequest(exchange, request);
-				LOGGER.debug("upper().receiveRequest completed for protected exchange {} request {}", exchange, request);				return;
+				return;
 			}
 			
 			byte[] requestOscoreOption;
@@ -477,9 +457,7 @@ public class ObjectSecurityLayer extends AbstractLayer {
 
 			exchange.setCryptographicContextID(requestOscoreOption);
 		}
-LOGGER.debug("Calling upper().receiveRequest for exchange {} request {}", exchange, request);
 		super.receiveRequest(exchange, request);
-    LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);
 	}
 
 	// DET_REQ

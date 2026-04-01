@@ -10,13 +10,13 @@ import java.security.Security;
 
 import org.eclipse.californium.core.CoapClient;
 import org.eclipse.californium.core.CoapHandler;
-import org.eclipse.californium.core.CoapObserveRelation;
 import org.eclipse.californium.core.CoapResponse;
 import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.coap.CoAP.Code;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
+import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
@@ -41,10 +41,7 @@ import org.eclipse.californium.oscore.OscoreOptionDecoder;
 import org.eclipse.californium.oscore.group.GroupCtx;
 import org.eclipse.californium.oscore.group.GroupRecipientCtx;
 import org.eclipse.californium.oscore.group.MultiKey;
-import org.eclipse.californium.core.coap.Response;
-
 import org.slf4j.Logger;
-
 import org.slf4j.LoggerFactory;
 
 import net.i2p.crypto.eddsa.EdDSASecurityProvider;
@@ -298,7 +295,7 @@ public class OSCOREMulticastObserveClient {
 
 				commonCtx.addSenderCtxCcs(sender_id, sender_private_key);
 				commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, new MultiKey(server_public_key_bytes));
-				db.addContext("coap://192.168.0.108:5683/OSCORE-mult", commonCtx);
+				db.addContext("coap://172.20.10.2:5683/OSCORE-mult", commonCtx);
 
 				OSCoreCoapStackFactory.useAsDefault(db);				
 

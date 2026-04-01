@@ -187,23 +187,27 @@ public class GroupCtx {
 		publicKeysMap = new HashMap<ByteId, OneKey>();
 	}
 
-  private byte[] phantomRequestKid = null;
-  private byte[] phantomRequestPiv = null;
-  private byte[] phantomRequestKidContext = null;
+	/**
+	 * Cached OSCORE header values from the phantom request, used by clients
+	 * to reconstruct the AAD when decrypting multicast notifications.
+	 */
+	private byte[] phantomRequestKid;
+	private byte[] phantomRequestPiv;
+	private byte[] phantomRequestKidContext;
 
-  public void setPhantomRequestValues(byte[] kid, byte[] piv, byte[] kidContext) {
-      this.phantomRequestKid = kid;
-      this.phantomRequestPiv = piv;
-      this.phantomRequestKidContext = kidContext;
-  }
+	public void setPhantomRequestValues(byte[] kid, byte[] piv, byte[] kidContext) {
+		this.phantomRequestKid = kid;
+		this.phantomRequestPiv = piv;
+		this.phantomRequestKidContext = kidContext;
+	}
 
-  public byte[] getPhantomRequestKid() { return phantomRequestKid; }
-  public byte[] getPhantomRequestPiv() { return phantomRequestPiv; }
-  public byte[] getPhantomRequestKidContext() { return phantomRequestKidContext; }
+	public byte[] getPhantomRequestKid() { return phantomRequestKid; }
+	public byte[] getPhantomRequestPiv() { return phantomRequestPiv; }
+	public byte[] getPhantomRequestKidContext() { return phantomRequestKidContext; }
 
-  public boolean hasPhantomRequestValues() {
-      return phantomRequestKid != null && phantomRequestPiv != null;
-  }
+	public boolean hasPhantomRequestValues() {
+		return phantomRequestKid != null && phantomRequestPiv != null;
+	}
 
 	/**
 	 * Add a recipient context.

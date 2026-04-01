@@ -22,28 +22,21 @@
  ******************************************************************************/
 package org.eclipse.californium.core.server;
 
-import static org.mockito.ArgumentMatchers.endsWith;
-
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.Executor;
 
 import org.eclipse.californium.core.coap.CoAP;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
-import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
-import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.coap.option.StringOption;
 import org.eclipse.californium.core.network.Exchange;
-import org.eclipse.californium.core.network.Exchange.Origin;
-import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.core.observe.ObserveHealth;
 import org.eclipse.californium.core.observe.ObserveManager;
 import org.eclipse.californium.core.server.resources.ObservableResource;
 import org.eclipse.californium.core.server.resources.Resource;
-import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.slf4j.Logger;
@@ -178,33 +171,30 @@ public class ServerMessageDeliverer implements MessageDeliverer {
 		Request request = exchange.getRequest();
 
 		if (CoAP.isObservable(request.getCode()) && request.getOptions().hasObserve() && resource.isObservable()
-        && resource instanceof ObservableResource) {
+				&& resource instanceof ObservableResource) {
 
-    if (request.isObserve()) {
-      if (exchange.isPhantomRequest()) {
-        // Phantom request - add observe relation and continue to resource
-        LOGGER.debug("Phantom request for {} - adding observe relation and continuing to resource", resource.getURI());
-        observeManager.addObserveRelation(exchange, (ObservableResource) resource);
-        request.setProtectFromOffload();
-        exchange.setSuppressResponse(true);
-      }else{
-        // Regular unicast observe (no group observation)
-        InetSocketAddress source = request.getSourceContext().getPeerAddress();
-        LOGGER.debug("initiating an observe relation between {} and resource {}, {}", StringUtil.toLog(source),
-            resource.getURI(), exchange);
-        observeManager.addObserveRelation(exchange, (ObservableResource) resource);
-        request.setProtectFromOffload();
-      }
-    }else if (request.isObserveCancel()) {
-      // Observe defines 1 for canceling
-      InetSocketAddress source = request.getSourceContext().getPeerAddress();
-      LOGGER.debug("cancel an observe relation between {} and resource {}, {}", StringUtil.toLog(source),
-          resource.getURI(), exchange);
-      observeManager.cancelObserveRelation(exchange);
-    }
-    }
-  }
-	
+			if (request.isObserve()) {
+				if (exchange.isPhantomRequest()) {
+					LOGGER.debug("Phantom request for {} - adding observe relation", resource.getURI());
+					observeManager.addObserveRelation(exchange, (ObservableResource) resource);
+					request.setProtectFromOffload();
+					exchange.setSuppressResponse(true);
+				} else {
+					InetSocketAddress source = request.getSourceContext().getPeerAddress();
+					LOGGER.debug("initiating an observe relation between {} and resource {}, {}",
+							StringUtil.toLog(source), resource.getURI(), exchange);
+					observeManager.addObserveRelation(exchange, (ObservableResource) resource);
+					request.setProtectFromOffload();
+				}
+			} else if (request.isObserveCancel()) {
+				InetSocketAddress source = request.getSourceContext().getPeerAddress();
+				LOGGER.debug("cancel an observe relation between {} and resource {}, {}",
+						StringUtil.toLog(source), resource.getURI(), exchange);
+				observeManager.cancelObserveRelation(exchange);
+			}
+		}
+	}
+
 
 	/**
 	 * Return root resource.

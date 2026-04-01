@@ -231,13 +231,6 @@ public abstract class BaseCoapStack implements CoapStack {
 			outbox.sendRequest(exchange, request);
 		}
 
-    @Override
-		public void receiveRequest(Exchange exchange, Request request) {
-    		LOGGER.debug("At bottom: calling.receiveRequest for exchange {} request {}", exchange, request);
-			super.receiveRequest(exchange, request);
-			LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);
-		}
-
 		@Override
 		public void sendResponse(Exchange exchange, Response response) {
 			outbox.sendResponse(exchange, response);

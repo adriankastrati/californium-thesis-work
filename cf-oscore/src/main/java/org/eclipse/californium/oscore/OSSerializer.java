@@ -284,10 +284,6 @@ public class OSSerializer {
 	 * @return the updated external AAD
 	 */
 	public static byte[] updateAADForGroup(OSCoreCtx ctx, byte[] aadBytes, Message message) {
-		LOGGER.debug("updateAADForGroup entry - isPhantom: {}",
-			    message instanceof Request && ((Request) message).getIsPhantomRequest());
-			LOGGER.debug("updateAADForGroup entry - message class: {}",
-			    message.getClass().getName());
 		CBORObject algSign = null;
 		CBORObject algGroupEnc = null;
 		CBORObject algKeyAgreement = null;
@@ -296,24 +292,23 @@ public class OSSerializer {
 		byte[] gmPublicKey = null;
 
 		if (ctx instanceof GroupRecipientCtx) {
-		    GroupRecipientCtx recipientCtx = (GroupRecipientCtx) ctx;
-		    
-		    // For phantom requests, use the sender ctx since the message
-		    // was originally encrypted by the server as sender
-		    if (message instanceof Request && ((Request) message).getIsPhantomRequest()) {
-		        GroupSenderCtx senderCtx = recipientCtx.getCommonCtx().getSenderCtx();
-		        algSign = senderCtx.getAlgSign().AsCBOR();
-		        algGroupEnc = senderCtx.getAlgGroupEnc().AsCBOR();
-		        algKeyAgreement = senderCtx.getAlgKeyAgreement().AsCBOR();
-		        senderPublicKey = senderCtx.getPublicKeyRaw();
-		        gmPublicKey = senderCtx.getCommonCtx().getGmPublicKey();
-		    } else {
-		        algSign = recipientCtx.getAlgSign().AsCBOR();
-		        algGroupEnc = recipientCtx.getAlgGroupEnc().AsCBOR();
-		        algKeyAgreement = recipientCtx.getAlgKeyAgreement().AsCBOR();
-		        senderPublicKey = recipientCtx.getPublicKeyRaw();
-		        gmPublicKey = recipientCtx.getCommonCtx().getGmPublicKey();
-		    }
+			GroupRecipientCtx recipientCtx = (GroupRecipientCtx) ctx;
+
+			// For phantom requests, use the sender ctx since the server encrypted the message
+			if (message instanceof Request && ((Request) message).getIsPhantomRequest()) {
+				GroupSenderCtx senderCtx = recipientCtx.getCommonCtx().getSenderCtx();
+				algSign = senderCtx.getAlgSign().AsCBOR();
+				algGroupEnc = senderCtx.getAlgGroupEnc().AsCBOR();
+				algKeyAgreement = senderCtx.getAlgKeyAgreement().AsCBOR();
+				senderPublicKey = senderCtx.getPublicKeyRaw();
+				gmPublicKey = senderCtx.getCommonCtx().getGmPublicKey();
+			} else {
+				algSign = recipientCtx.getAlgSign().AsCBOR();
+				algGroupEnc = recipientCtx.getAlgGroupEnc().AsCBOR();
+				algKeyAgreement = recipientCtx.getAlgKeyAgreement().AsCBOR();
+				senderPublicKey = recipientCtx.getPublicKeyRaw();
+				gmPublicKey = recipientCtx.getCommonCtx().getGmPublicKey();
+			}
 		} else if (ctx instanceof GroupSenderCtx) { // DET_REQ (else-if extended here)
 			GroupSenderCtx senderCtx = (GroupSenderCtx) ctx;
 			algSign = senderCtx.getAlgSign().AsCBOR();
@@ -352,7 +347,7 @@ public class OSSerializer {
 		// Add update algorithms array to external AAD (used for encryption)
 		groupAadEnc.set(1, algorithms);
 
-		// Add request_kid_context //FIXME
+		// Add request_kid_context
 		if (ctx.getIdContext() == null || ctx.getIdContext().length == 0) {
 			groupAadEnc.Add(CBORObject.FromObject(Bytes.EMPTY));
 		} else {
@@ -365,32 +360,21 @@ public class OSSerializer {
 		byte[] oscoreOption = message.getOptions().getOscore();
 		boolean outgoing = message.getSourceContext() == null;
 
+		// Phantom requests use empty OSCORE option for AAD computation
 		if (message instanceof Request && ((Request) message).getIsPhantomRequest()) {
-		    oscoreOption = new byte[0];
+			oscoreOption = new byte[0];
 		} else if (outgoing) {
-		    if (message instanceof Request) {
-		        boolean groupModeRequest = OptionEncoder.getPairwiseMode(oscoreOption) == false;
-		        oscoreOption = Encryptor.encodeOSCoreRequest(ctx, groupModeRequest);
-		    } else {
-		        boolean newPartialIV = ctx.getResponsesIncludePartialIV() ||
-		                               message.getOptions().hasObserve() ||
-		                               message.getOptions().hasRequestHash();
-		        oscoreOption = Encryptor.encodeOSCoreResponse(ctx, newPartialIV);
-		    }
+			if (message instanceof Request) {
+				boolean groupModeRequest = OptionEncoder.getPairwiseMode(oscoreOption) == false;
+				oscoreOption = Encryptor.encodeOSCoreRequest(ctx, groupModeRequest);
+			} else {
+				boolean newPartialIV = ctx.getResponsesIncludePartialIV() ||
+						message.getOptions().hasObserve() ||
+						message.getOptions().hasRequestHash();
+				oscoreOption = Encryptor.encodeOSCoreResponse(ctx, newPartialIV);
+			}
 		}
 
-		LOGGER.debug("=== AAD DEBUG ===");
-		LOGGER.debug("ctx type: {}", ctx.getClass().getSimpleName());
-		LOGGER.debug("outgoing: {}", outgoing);
-		boolean isPhantom = message instanceof Request && ((Request) message).getIsPhantomRequest();
-		LOGGER.debug("isPhantom: {}", isPhantom);
-		if (isPhantom || (ctx instanceof GroupSenderCtx && ((GroupSenderCtx)ctx).getSenderId()[0] == 0x52)) {
-		    LOGGER.debug("oscoreOption for AAD: {}", Utils.bytesToHex(oscoreOption));
-		    LOGGER.debug("senderPublicKey for AAD: {}", Utils.bytesToHex(senderPublicKey));
-		    LOGGER.debug("idContext: {}", Utils.bytesToHex(ctx.getIdContext()));
-		    LOGGER.debug("full AAD output: {}", Utils.bytesToHex(groupAadEnc.EncodeToBytes()));
-		}
-		LOGGER.debug("=================");
 		// Actually add OSCORE option to external AAD
 		groupAadEnc.Add(oscoreOption);
 

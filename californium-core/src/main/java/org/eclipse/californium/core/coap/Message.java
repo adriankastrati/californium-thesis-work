@@ -269,13 +269,21 @@ public abstract class Message {
 	 * {@code 0} if neither has happened yet.
 	 */
 	private volatile long nanoTimestamp;
-  private boolean isPhantomRequest = false;
-  public void setIsPhantomRequest(boolean isPhantom){
-    this.isPhantomRequest = isPhantom;
-  }
-  public boolean getIsPhantomRequest(){
-    return this.isPhantomRequest;
-  }
+
+	/**
+	 * Indicates whether this message is a phantom request used for
+	 * multicast observe notifications (draft-ietf-core-observe-multicast-notifications).
+	 */
+	private boolean isPhantomRequest = false;
+
+	public void setIsPhantomRequest(boolean isPhantom) {
+		this.isPhantomRequest = isPhantom;
+	}
+
+	public boolean getIsPhantomRequest() {
+		return this.isPhantomRequest;
+	}
+
 	/**
 	 * Creates a new message with no specified message type.
 	 */

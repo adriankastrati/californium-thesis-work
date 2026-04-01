@@ -1,5 +1,6 @@
 /*******************************************************************************
-
+ * Group observation state for multicast notifications
+ * (draft-ietf-core-observe-multicast-notifications).
  ******************************************************************************/
 package org.eclipse.californium.core.observe;
 
@@ -7,7 +8,6 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.californium.core.CoapExchange;
@@ -15,8 +15,6 @@ import org.eclipse.californium.core.coap.CoAP;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Token;
-import org.eclipse.californium.core.network.Exchange;
-import org.eclipse.californium.core.network.Exchange.Origin;
 import org.eclipse.californium.core.network.RandomTokenGenerator;
 import org.eclipse.californium.core.network.TokenGenerator;
 import org.eclipse.californium.core.network.TokenGenerator.Scope;
@@ -26,123 +24,101 @@ import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.util.Bytes;
 
 /**
- * Assuming that multicast notifications will all be sent to the same address for each group observation, 
- *  Singleton Data Structure to hold group observation state of resources at server
+ * Singleton holding server-side group observation state for resources.
+ * <p>
+ * Tracks ongoing group observation setups, pending multicast notification
+ * tokens, active group observations, and clients awaiting informative responses.
  */
 public class GroupObservationsInfo {
 
 	/**
-	 * A map with key the URI path of the resource supporting group observation, and with value a boolean flag. 
-	 * The flag has value true only while the server is setting up a group observation on the resource identified by that URI path.
+	 * Tracks which resources have a group observation setup in progress.
 	 */
 	private Map<String, Boolean> ongoingGroupObservationSetup;
 
-	/* 
-	 * A map with key the URI path of the resource supporting group observation, and with value a Token value. 
-	 * The latter is the value of a Token of a phantom request that the server has just sent to itself and 
-	 * is waiting to receive and process for starting the group observation.
-	 * A new element is added to the map once extracted from freeMulticastNotificationTokens 
-	 * and upon preparing a phantom request with that token value. 
-	 * Once started the group observation, the entry map is removed.
+	/**
+	 * Tokens of phantom requests that the server has sent to itself and is
+	 * waiting to receive. Keyed by resource URI path. Entries are removed
+	 * once the group observation starts.
 	 */
 	private Map<String, Token> pendingMulticastNotificationTokens;
-	
+
 	/**
-	 * a map with key the URI path of the resource supporting group observation, 
-	 * and with value an object including all the information used to describe the group observation 
-	 * and to compose the error informative response
+	 * Active group observations keyed by resource URI path.
 	 */
 	private Map<String, ObservationInfo> ongoingGroupObservations;
 
 	/**
-	 * Pending clients waiting for informative response (5.03).
-	 * Key is resource URI, value is list of client exchanges.
+	 * Clients waiting for the informative response (5.03), keyed by resource URI.
 	 */
 	private Map<String, List<CoapExchange>> pendingClients;
-  
-  private final int GRP_PORT = 61616;
 
-	/**
-	 * Multicast address where notifications are sent.
-	 */
-	private volatile InetSocketAddress multicastAddress =  new InetSocketAddress(CoAP.MULTICAST_IPV4, GRP_PORT);// With custom multicast port
-  
-  public InetSocketAddress getMulticastAddress(){
-    return multicastAddress;
-  }
-  /**
-   * 
-   * @param uri to be checked for ongoing groupObservation
-   * @return if there is a ongoing group observation of uri
-   */
-  public boolean isOngoingGroupObservation(String uri){
-    return this.ongoingGroupObservations.containsKey(uri);
-  }
+	private static final int GRP_PORT = 61616;
 
-  
+	private volatile InetSocketAddress multicastAddress = new InetSocketAddress(CoAP.MULTICAST_IPV4, GRP_PORT);
+
+	public InetSocketAddress getMulticastAddress() {
+		return multicastAddress;
+	}
+
+	public boolean isOngoingGroupObservation(String uri) {
+		return this.ongoingGroupObservations.containsKey(uri);
+	}
+
 	private static GroupObservationsInfo instance;
 
 	private final TokenGenerator tokenGenerator;
 
-	private GroupObservationsInfo(){
+	/** The server's own OSCORE sender ID, used for phantom request recognition. */
+	private byte[] senderId;
+
+	private GroupObservationsInfo() {
 		this.ongoingGroupObservationSetup = new ConcurrentHashMap<>();
 		this.pendingMulticastNotificationTokens = new ConcurrentHashMap<>();
 		this.ongoingGroupObservations = new ConcurrentHashMap<>();
 		this.pendingClients = new ConcurrentHashMap<>();
 		this.tokenGenerator = new RandomTokenGenerator(Configuration.createStandardWithoutFile());
-    }
+	}
 
-    public static synchronized GroupObservationsInfo getInstance() {
-        if (instance == null) {
-            instance = new GroupObservationsInfo();
-        }
-        
-        return instance;
-    }
-
-    /**
-     * Reset the singleton instance. Use this for testing to clear all state.
-     */
-    public static synchronized void init() {
-        instance = null;
-    }
-    
-    public boolean isTokenPendingProcess(Token token) {
-    	return pendingMulticastNotificationTokens.containsValue(token);
-    }
+	public static synchronized GroupObservationsInfo getInstance() {
+		if (instance == null) {
+			instance = new GroupObservationsInfo();
+		}
+		return instance;
+	}
 
 	/**
-	 * Mark whether a group observation setup is ongoing for the URI path.
-	 * 
-	 * @param uriPath resource URI path
-	 * @param inProgress {@code true} if setup ongoing
+	 * Reset the singleton instance (for testing).
 	 */
+	public static synchronized void init() {
+		instance = null;
+	}
+
+	public boolean isTokenPendingProcess(Token token) {
+		return pendingMulticastNotificationTokens.containsValue(token);
+	}
+
 	public void setGroupObservationSetupInProgress(String uriPath, boolean inProgress) {
-    if (uriPath != null) {
-        ongoingGroupObservationSetup.put(uriPath, inProgress);
-    }
-  }
+		if (uriPath != null) {
+			ongoingGroupObservationSetup.put(uriPath, inProgress);
+		}
+	}
+
+	public boolean isGroupObservationSetupInProgress(String uri) {
+		return Boolean.TRUE.equals(ongoingGroupObservationSetup.get(uri));
+	}
+
+	public byte[] getSenderId() {
+		return senderId;
+	}
+
+	public void setSenderId(byte[] senderId) {
+		this.senderId = senderId;
+	}
 
 	/**
-	 * Check whether a group observation setup is ongoing for the URI path.
-	 * 
-	 * @param uri resource URI path
-	 * @return {@code true} if setup ongoing
-	 */
-	public boolean isGroupObservationSetupInProgress(String uri) {
-    return Boolean.TRUE.equals(ongoingGroupObservationSetup.get(uri));
-}
-	private byte[] sender_ID;
-	
-	public byte[] getSender_ID() {
-		return sender_ID;
-	}
-	public void setSender_ID(byte[] sender_ID) {
-		this.sender_ID = sender_ID;
-	}
-	/**
-	 * Allocate a token for multicast notifications for a resource URI and mark it as pending.
-	 * 
+	 * Allocate a token for multicast notifications and mark it as pending.
+	 *
 	 * @param uriPath resource URI path
 	 * @return allocated token
 	 */
@@ -159,21 +135,12 @@ public class GroupObservationsInfo {
 		return token;
 	}
 
-	/**
-	 * Get pending token for a resource URI.
-	 * 
-	 * @param uriPath resource URI path
-	 * @return pending token or {@code null}
-	 */
 	public Token getPendingToken(String uriPath) {
 		return pendingMulticastNotificationTokens.get(uriPath);
 	}
 
 	/**
-	 * Start a group observation for a URI.
-	 * 
-	 * @param uriPath resource URI path
-	 * @param info observation info
+	 * Transition from pending to active group observation.
 	 */
 	public void startGroupObservation(String uriPath, ObservationInfo info) {
 		if (uriPath == null || info == null) {
@@ -183,21 +150,15 @@ public class GroupObservationsInfo {
 		ongoingGroupObservations.put(uriPath, info);
 	}
 
-	/**
-	 * Get observation info for a URI.
-	 * 
-	 * @param uriPath resource URI path
-	 * @return observation info or {@code null}
-	 */
 	public ObservationInfo getGroupObservationInfo(String uriPath) {
 		return ongoingGroupObservations.get(uriPath);
 	}
 
 	/**
-	 * Add a pending client exchange that is waiting for an informative response.
-	 * 
+	 * Add a client exchange waiting for an informative response.
+	 *
 	 * @param uriPath resource URI path
-	 * @param exchange the client'f exchange
+	 * @param exchange the client's exchange
 	 */
 	public void addPendingClient(String uriPath, CoapExchange exchange) {
 		if (uriPath == null || exchange == null) {
@@ -208,9 +169,6 @@ public class GroupObservationsInfo {
 
 	/**
 	 * Get and remove all pending client exchanges for a resource.
-	 * 
-	 * @param uriPath resource URI path
-	 * @return list of pending exchanges, or empty list
 	 */
 	public List<CoapExchange> removePendingClients(String uriPath) {
 		List<CoapExchange> clients = pendingClients.remove(uriPath);
@@ -218,36 +176,24 @@ public class GroupObservationsInfo {
 	}
 
 	/**
-	 * Get pending client CoapExchanges for a resource (without removing).
-	 * 
-	 * @param uriPath resource URI path
-	 * @return list of pending CoapExchanges, or empty list
+	 * Get pending client exchanges without removing them.
 	 */
 	public List<CoapExchange> getPendingClients(String uriPath) {
 		List<CoapExchange> clients = pendingClients.get(uriPath);
 		return clients != null ? new ArrayList<>(clients) : new ArrayList<>();
 	}
 
+	public ObservationInfo removeGroupObservation(String uriPath) {
+		if (uriPath == null) {
+			return null;
+		}
+		pendingMulticastNotificationTokens.remove(uriPath);
+		return ongoingGroupObservations.remove(uriPath);
+	}
+
 	/**
-	 * Remove group observation for a URI.
-	 * 
-	 * @param uriPath resource URI path
-	 * @return removed observation info
+	 * Generate a token not already in use by pending or ongoing observations.
 	 */
-public ObservationInfo removeGroupObservation(String uriPath) {
-    if (uriPath == null) {
-        return null;
-    }
-    pendingMulticastNotificationTokens.remove(uriPath);
-    return ongoingGroupObservations.remove(uriPath);
-  }
-
-  /**
-  * Available token values are practically enforced as the complement of the
-  * union of pending and ongoing tokens.
-  * @return 
-  */
-
 	private Token getFreeMulticastNotificationToken() {
 		Token token;
 		do {
@@ -271,60 +217,32 @@ public ObservationInfo removeGroupObservation(String uriPath) {
 		return false;
 	}
 
-  	/**
-	 * Creates a phantom request and CoapExchange for multicast group observation.
-	 * 
-	 * The phantom request is a self-generated observe request that establishes
-	 * the group observation. Its source context is set to the multicast group
-	 * address so that responses (notifications) will be sent to the multicast group.
-	 * 
+	/**
+	 * Creates a phantom request for multicast group observation setup.
+	 * <p>
+	 * The phantom request is a self-generated observe request whose source
+	 * context is set to the server's own address. The ObserveLayer will
+	 * recognize it and redirect the source to the multicast group address.
+	 *
 	 * @param resource the resource to observe
-	 * @param multicastToken the token T allocated for multicast notifications
-	 * @param triggeringCoapExchange the original client CoapExchange that triggered this setup
-	 * @return the phantom CoapExchange ready to be delivered
+	 * @param multicastToken the token allocated for multicast notifications
+	 * @param triggeringCoapExchange the original client exchange that triggered setup
+	 * @param hasOscore whether OSCORE protection is used
+	 * @return the phantom request ready to be injected
 	 */
-	public Request createPhantomRequest(Resource resource, Token multicastToken, CoapExchange triggeringCoapExchange, boolean hasOscore) {
-		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
-		
-		// Step 6: Build the phantom GET request
+	public Request createPhantomRequest(Resource resource, Token multicastToken,
+			CoapExchange triggeringCoapExchange, boolean hasOscore) {
 		Request phantomRequest = Request.newGet();
-		
-		// Set the multicast token T
 		phantomRequest.setToken(multicastToken);
-		
-		// Set Observe=0 (register for observation)
 		phantomRequest.setObserve();
-		
-		// Set URI path to the resource
 		phantomRequest.getOptions().setUriPath(resource.getURI());
-
-		// Set message type to NON (multicast requires non-confirmable)
 		phantomRequest.setType(Type.NON);
-		
 		phantomRequest.getOptions().setOscore(Bytes.EMPTY);
 
 		InetSocketAddress localAddress = triggeringCoapExchange.advanced().getEndpoint().getAddress();
-		
-		// Set source context to the server's own address.
-		// This allows ObserveLayer.isPhantomRequest() to recognize this as a
-		// phantom request (source == server's own address). The ObserveLayer
-		// will then change the source to the multicast address.
 		phantomRequest.setDestinationContext(new AddressEndpointContext(localAddress));
 		phantomRequest.setSourceContext(new AddressEndpointContext(localAddress));
 		phantomRequest.setMultiResponse(true);
-
-		// Step 7: Create the CoapExchange for server-side processing
-		// Use Origin.REMOTE because the server should see this as an incoming request
-		//Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE, triggeringExchange.getEndpoint().getExecutor());
-
-		// Do NOT manually set phantomExchange.setPhantomRequest(true) here.
-		// The ObserveLayer will detect this as a phantom request when it
-		// traverses the stack and set the flag accordingly.
-		
-		// Set endpoint from triggering exchange if available
-		//if (triggeringExchange.getEndpoint() != null) {
-			//phantomExchange.setEndpoint(triggeringExchange.getEndpoint());
-		//}
 
 		return phantomRequest;
 	}

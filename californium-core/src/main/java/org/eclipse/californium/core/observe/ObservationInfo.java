@@ -5,7 +5,6 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 
 import org.eclipse.californium.core.coap.CoAP;
-import org.eclipse.californium.core.coap.OptionSet;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.network.serialization.DataSerializer;
@@ -14,10 +13,9 @@ import org.eclipse.californium.elements.util.DatagramWriter;
 import com.upokecenter.cbor.CBORObject;
 import com.upokecenter.cbor.CBORType;
 
-
 /**
  * Represents the informative response payload (5.03 Service Unavailable)
- * as defined in draft.
+ * as defined in draft-ietf-core-observe-multicast-notifications.
  * 
  * informative_response_payload = {
  *    0 => array, ; 'tp_info' (transport-specific information)

@@ -37,7 +37,6 @@
 package org.eclipse.californium.core.network.stack;
 
 import java.net.InetSocketAddress;
-import java.util.Arrays;
 import java.util.List;
 
 import org.eclipse.californium.core.coap.CoAP.Type;
@@ -52,13 +51,10 @@ import org.eclipse.californium.core.network.Exchange.Origin;
 import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.core.observe.ObserveRelation.State;
-import org.eclipse.californium.elements.AddressEndpointContext;
-import org.eclipse.californium.elements.EndpointContext;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 
 /**
  * UDP observe layer.
@@ -78,67 +74,53 @@ public class ObserveLayer extends AbstractLayer {
 	}
 
 	/**
-	 * Recognizes if a request is a phantom request for multicast observe notifications.
+	 * Checks whether the request is a phantom request for multicast observe
+	 * notifications (draft-ietf-core-observe-multicast-notifications).
+	 *
 	 * @param exchange the exchange containing the request
-	 * @return true if this is a phantom request
-	 * @throws CoapOSException if faulty oscore formatting
+	 * @return {@code true} if this is a phantom request
 	 */
 	private boolean isPhantomRequest(final Exchange exchange) {
-		LOGGER.debug("Checking if phantom Request");
 		Request request = exchange.getCurrentRequest();
 		Token token = request.getToken();
-		String uriPath = request.getOptions().getUriPathString();
-		
+
 		GroupObservationsInfo groupObservationInfo = GroupObservationsInfo.getInstance();
-		
-		// Condition 1: Does the request have the Observe option with value 0?
+
 		if (request.getOptions().getObserve() == null || request.getOptions().getObserve() != 0) {
 			return false;
 		}
-		
-		// Condition 2: Is token value currently in pendingMulticastNotifTokens for the URI-path?
+
 		if (!groupObservationInfo.isTokenPendingProcess(token)) {
 			return false;
 		}
 
-			// NOT OSCORE-protected: source address and port must be the server's own
-			InetSocketAddress sourceAddress = request.getSourceContext().getPeerAddress();
-			InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
-			
-			LOGGER.debug("Phantom request check: source={}, local={}", 
-      sourceAddress, localAddress);
-      return sourceAddress.equals(localAddress);
-		
+		// Not OSCORE-protected: verify source address matches the server's own address
+		InetSocketAddress sourceAddress = request.getSourceContext().getPeerAddress();
+		InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
+		LOGGER.debug("Phantom request check: source={}, local={}", sourceAddress, localAddress);
+		return sourceAddress.equals(localAddress);
 	}
 
 	@Override
 	public void receiveRequest(final Exchange exchange, final Request request) {
-		LOGGER.info("Handling request {} at ObserveLayer",request.getURI());
-		// Check if this is a phantom request coming back to the server
 		if (isPhantomRequest(exchange)) {
 			exchange.setPhantomRequest(true);
-			// Change the source addressing information to the multicast address
-			// where multicast notifications should be sent
+			// Redirect source context to multicast address so notifications are sent there
 			InetSocketAddress multicastAddress = GroupObservationsInfo.getInstance().getMulticastAddress();
 			request.setSourceContext(new org.eclipse.californium.elements.UdpEndpointContext(multicastAddress));
 			exchange.getRequest().setSourceContext(new org.eclipse.californium.elements.UdpEndpointContext(multicastAddress));
-			GroupObservationsInfo groupObservationInfo = GroupObservationsInfo.getInstance();
 
-			LOGGER.debug("Setting complete for previous observe relations to resource: {}",  request.getURI());
+			// Complete previous unicast observe relations for this resource
+			GroupObservationsInfo groupObservationInfo = GroupObservationsInfo.getInstance();
 			List<CoapExchange> pendingClients = groupObservationInfo.getPendingClients(request.getURI());
-			for (CoapExchange clientExchange: pendingClients) {
-				LOGGER.debug("setting complete for client exchange: {}", clientExchange.getSourceAddress());
+			for (CoapExchange clientExchange : pendingClients) {
 				clientExchange.advanced().setComplete();
-			}  
-			
-			
-			LOGGER.info("Recognized phantom request for {} with token {}. Changed source to multicast: {}",
+			}
+
+			LOGGER.debug("Recognized phantom request for {} with token {}. Source set to multicast: {}",
 					request.getOptions().getUriPathString(), request.getToken(), multicastAddress);
 		}
-    LOGGER.debug("Calling upper().receiveRequest for exchange {} request {}", exchange, request);
 		upper().receiveRequest(exchange, request);
-    LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);
-
 	}
 
 	@Override
@@ -211,22 +193,19 @@ public class ObserveLayer extends AbstractLayer {
 				}
 			}
 		}
-      if (exchange.isSuppressResponse() && !exchange.getRequest().getOptions().hasOscore()) {
-      // Only suppress during initial setup, not for subsequent notifications
-      LOGGER.info("Suppressing first response");
-      exchange.setSuppressResponse(false);
-      return;
-    }
-		// For phantom exchanges (multicast observe notifications), ensure the response
-		// goes to the multicast address. The exchange.isPhantomRequest() flag was set
-		// during the initial phantom request 'setup.
+		// Suppress the initial phantom request response during group observation setup.
+		// OSCORE-protected exchanges are let through so the OSCORE layer can store last_notif.
+		if (exchange.isSuppressResponse() && !exchange.getRequest().getOptions().hasOscore()) {
+			exchange.setSuppressResponse(false);
+			return;
+		}
+		// Route multicast observe notifications to the multicast group address
 		if (response.isNotification() && exchange.isPhantomRequest()) {
-			exchange.setPhantomRequest(true);
-			LOGGER.info("Sending multicast notification to: {}", 
+			LOGGER.debug("Sending multicast notification to: {}",
 					exchange.getRequest().getSourceContext().getPeerAddress());
 			exchange.getResponse().setDestinationContext(exchange.getRequest().getSourceContext());
 		}
-    
+
 		lower().sendResponse(exchange, response);
 	}
 

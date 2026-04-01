@@ -526,9 +526,7 @@ public class BlockwiseLayer extends AbstractLayer {
 			}
 		}
 
-    LOGGER.debug("Calling upper().receiveRequest for exchange {} request {}", exchange, request);
 		upper().receiveRequest(exchange, request);
-    LOGGER.debug("upper().receiveRequest completed for exchange {} request {}", exchange, request);
 	}
 
 	private void handleInboundBlockwiseUpload(final Exchange exchange, final Request request) {
@@ -734,18 +732,14 @@ public class BlockwiseLayer extends AbstractLayer {
 				exchange.setBlock1ToAck(null);
 				responseToSend.getOptions().setBlock1(block1);
 			}
-		}	
+		}
+		// Suppress the initial phantom request response during group observation setup.
+		// OSCORE-protected exchanges are let through so the OSCORE layer can store last_notif.
 		if (exchange.isSuppressResponse() && !exchange.getRequest().getOptions().hasOscore()) {
-		      // Only suppress during initial setup, not for subsequent notifications
-		      // If oscore is used, needs to pass OSCORE layer as well,
-            //TODO the response as 'last_notif' within the entry of the map 
-            // ongoingGroupObservations related to this group observation.
-            
-		      exchange.setSuppressResponse(false);
-		      return;
-		    }
-		    //this is a notification, or hasOscore let it through
-		    lower().sendResponse(exchange, responseToSend);
+			exchange.setSuppressResponse(false);
+			return;
+		}
+		lower().sendResponse(exchange, responseToSend);
 	}
 
 	/**

@@ -665,7 +665,6 @@ public class CoapEndpoint implements Endpoint, Executor {
 
 	@Override
 	public void sendRequest(final Request request) {
-		LOGGER.debug("Sending request, line 668");
 		if (!started) {
 			request.cancel();
 			return;
@@ -776,7 +775,6 @@ public class CoapEndpoint implements Endpoint, Executor {
 
 				@Override
 				public void run() {
-          LOGGER.debug("Sending response");
 					coapstack.sendResponse(exchange, response);
 				}
 			});
@@ -939,7 +937,6 @@ public class CoapEndpoint implements Endpoint, Executor {
 
 		@Override
 		public void sendRequest(final Exchange exchange, final Request request) {
-			LOGGER.debug("Sending request, line 941");
 			assertMessageHasDestinationAddress(request);
 			exchange.setCurrentRequest(request);
 			matcher.sendRequest(exchange);
@@ -975,15 +972,12 @@ public class CoapEndpoint implements Endpoint, Executor {
 				exchange.executeComplete();
 
 			} else if (!request.getShouldSend()) {
-				// Phantom request for multicast observe - registered but not sent
+				// Phantom request for multicast observe: registered but not sent on the wire
 				LOGGER.debug("Phantom request registered but not sent: {}", request);
-				// Set the endpoint context so UdpMatcher can route incoming multicast responses
 				EndpointContext context = request.getDestinationContext();
 				if (context != null) {
 					exchange.setEndpointContext(context);
-					LOGGER.debug("Set endpoint context for phantom request from destination: {}", context);
 				}
-				// For phantom requests, still start RTT tracking so that response RTT calculation works
 				if (exchange.getFailedTransmissionCount() == 0) {
 					exchange.startTransmissionRtt();
 				}
@@ -1149,15 +1143,15 @@ public class CoapEndpoint implements Endpoint, Executor {
 					return;
 				} else if (CoAP.isResponse(msg.getRawCode())) {
 					if (raw.isMulticast()) {
-						// Check if this multicast response matches an existing observation
-						// (RFC observe-multicast-notifications: clients receive notifications via multicast)
+						// Process multicast responses that match an observed token,
+						// silently ignore the rest (draft-ietf-core-observe-multicast-notifications)
 						Response response = (Response) msg;
 						if (response.getToken() != null && observationStore.get(response.getToken()) != null) {
-							LOGGER.debug("{}multicast-receiver processing response with observed token {} from {}", 
+							LOGGER.debug("{}multicast-receiver processing observed token {} from {}",
 								tag, response.getToken(), raw.getEndpointContext());
 							receiveResponse(response);
 						} else {
-							LOGGER.debug("{}multicast-receiver silently ignoring responses from {}", tag,
+							LOGGER.debug("{}multicast-receiver ignoring response from {}", tag,
 								raw.getEndpointContext());
 						}
 					} else {

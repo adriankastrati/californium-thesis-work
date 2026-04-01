@@ -196,15 +196,21 @@ public class Request extends Message {
 
 	private boolean ready;
 
+	/**
+	 * Controls whether this request is actually sent on the wire.
+	 * Set to {@code false} for phantom requests that are only registered
+	 * locally but not transmitted.
+	 */
 	private boolean shouldSend = true;
 
-	public boolean getShouldSend(){
+	public boolean getShouldSend() {
 		return shouldSend;
 	}
-	public void setShouldSend(boolean b){
+
+	public void setShouldSend(boolean b) {
 		shouldSend = b;
 	}
-  
+
 	/**
 	 * Request's scheme.
 	 * 

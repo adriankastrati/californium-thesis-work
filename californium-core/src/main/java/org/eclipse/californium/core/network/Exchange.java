@@ -366,24 +366,25 @@ public class Exchange {
 	private byte[] cryptoContextId;
 
 	/**
-	 * Set to true when server sends phantom request,
-	 * request should not be sent on wire
+	 * Marks this exchange as carrying a phantom request for multicast
+	 * observe notifications (draft-ietf-core-observe-multicast-notifications).
 	 */
-  private boolean phantomRequest = false;
+	private boolean phantomRequest = false;
 
-	public boolean isPhantomRequest(){
-    return phantomRequest;
-  };
-  
-	public void setPhantomRequest(boolean bool){
-    phantomRequest = bool;
-  }
+	public boolean isPhantomRequest() {
+		return phantomRequest;
+	}
+
+	public void setPhantomRequest(boolean phantomRequest) {
+		this.phantomRequest = phantomRequest;
+	}
+
 	/**
-	 * If not null, request has traversed OSCORE layer,
-	 * encrypted request copied as is to this field
+	 * The OSCORE-encrypted bytes of the phantom request, stored so
+	 * they can be included as {@code ph_req} in informative responses.
 	 */
-	private byte[] protectedRequest = null;
-	
+	private byte[] protectedRequest;
+
 	public byte[] getProtectedRequest() {
 		return protectedRequest;
 	}
@@ -393,10 +394,11 @@ public class Exchange {
 	}
 
 	/**
-	 * If true, Observe layer does not send response to layer below
+	 * When {@code true}, the initial response to a phantom request is
+	 * suppressed (not sent to the layer below) during group observation setup.
 	 */
 	private boolean suppressResponse;
-	
+
 	public boolean isSuppressResponse() {
 		return suppressResponse;
 	}
@@ -406,18 +408,20 @@ public class Exchange {
 	}
 
 	/**
-	 * If true, OSCORE layer does not protect outgoing response
+	 * When {@code true}, the OSCORE layer skips protection for the outgoing
+	 * response. Used during group observation setup.
 	 */
 	private boolean skipResponseProtection;
-	
+
 	public boolean isSkipResponseProtection() {
 		return skipResponseProtection;
 	}
-	
+
 	public void setSkipResponseProtection(boolean skipResponseProtection) {
 		this.skipResponseProtection = skipResponseProtection;
 	}
-	
+
+
 	/**
 	 * Creates a new exchange with the specified request and origin.
 	 * 

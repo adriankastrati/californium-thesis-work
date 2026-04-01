@@ -65,12 +65,7 @@
 			<artifactId>bcprov-jdk15to18</artifactId>
 			<version>1.72</version>
 		</dependency>
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <scope>compile</scope>
-        </dependency>
-    </dependencies>
+	</dependencies>
 
 	<build>
 		<plugins>

@@ -50,7 +50,6 @@ import javax.crypto.spec.SecretKeySpec;
 import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.scandium.dtls.cipher.CCMBlockCipher;
 import org.eclipse.californium.scandium.dtls.cipher.ThreadLocalCipher;
-//import org.junit.Assert;
 
 /**
  * 
@@ -196,8 +195,6 @@ public abstract class EncryptCommon extends Message {
 
 		obj.Add(rgbProtected);
 		obj.Add(CBORObject.FromObject(externalData));
-
-		//Assert.assertNotNull("rgbProtected is null!", rgbProtected);
 
 		return obj.EncodeToBytes();
 	}
