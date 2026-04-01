@@ -136,9 +136,8 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 	// static final int ED25519 = KeyKeys.OKP_Ed25519.AsInt32(); //Integer value
 	// 6
 
-	/* --- OSCORE Security Context information (receiver) --- */
+	/* --- OSCORE Security Context information (sender) --- */
 	private final static HashMapCtxDB db = new HashMapCtxDB();
-	private static String uriLocal = "coap://localhost";
 	private final static AlgorithmID alg = AlgorithmID.AES_CCM_16_64_128;
 	private final static AlgorithmID kdf = AlgorithmID.HMAC_SHA_256;
 
@@ -187,8 +186,6 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 	private final static byte[] group_identifier = new byte[] { 0x44, 0x61, 0x6c }; // GID
 	/* --- OSCORE Security Context information --- */
 
-	private static Random random;
-
 	/**
 	 * Main method
 	 * 
@@ -204,6 +201,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		InetSocketAddress address = new InetSocketAddress(NetworkInterfacesUtil.getMulticastInterfaceIpv4(), listenPort);
 		server.OSCORESetup(address);
 		server.addEndpoint();
+	
 	    Endpoint endpoint = server.getEndpoint(listenPort);                                                              
 
 		//resource.add(new HelloWorldResource(true));
@@ -213,7 +211,6 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 	    resource.add(new OSCOREMulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer()));
 	    //resource.add(new MulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer()));
 	    server.start();
-	    
 	    
 		// Information about the receiver
 		System.out.println("==================");
@@ -278,67 +275,6 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 		
 	}
-
-	private static class HelloWorldResource extends OSCoreResource {
-
-		private int count = 0;
-
-		private HelloWorldResource(boolean hasOSCORE) {
-			// set resource identifier
-			super("OSCORE-mult", hasOSCORE); // Changed
-
-			// set display name
-			getAttributes().setTitle("Hello-World Resource");
-
-		}
-
-		// Added for handling GET
-		@Override
-		public void handleGET(CoapExchange exchange) {
-			handlePOST(exchange);
-		}
-
-		@Override
-		public void handlePUT(CoapExchange exchange) {
-
-			System.out.println("Receiving request #" + count);
-			count++;
-
-			System.out.println("Receiving to: " + exchange.advanced().getEndpoint().getAddress());
-			System.out.println("Receiving from: " + exchange.getSourceAddress() + ":" + exchange.getSourcePort());
-
-			System.out.println(Utils.prettyPrint(exchange.advanced().getRequest()));
-
-			boolean isConfirmable = exchange.advanced().getRequest().isConfirmable();
-
-			// respond to the request if confirmable or replies are set to be
-			// sent for non-confirmable
-			// payload is set to request payload changed to uppercase plus the
-			// receiver ID
-			if (isConfirmable || replyToNonConfirmable) {
-				Response r = Response.createResponse(exchange.advanced().getRequest(), ResponseCode.CONTENT);
-				// r.setPayload(exchange.getRequestText().toUpperCase() + ". ID:
-				// " + id);
-				r.setPayload("Hello World!");
-				r.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
-				if (isConfirmable) {
-					r.setType(Type.ACK);
-				} else {
-					r.setType(Type.NON);
-				}
-
-				System.out.println();
-				System.out.println("Sending to: " + r.getDestinationContext().getPeerAddress());
-				System.out.println("Sending from: " + exchange.advanced().getEndpoint().getAddress());
-				System.out.println(Utils.prettyPrint(r));
-
-				exchange.respond(r);
-			}
-
-		}
-
-	}
-	
 
 	private static class ObservableResource extends OSCoreResource {
 			

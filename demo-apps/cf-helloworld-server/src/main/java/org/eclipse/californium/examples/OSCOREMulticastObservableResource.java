@@ -131,13 +131,13 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
       response.setToken(clientExchange.advanced().getRequest().getToken());
       
       LOGGER.info("Sending informative response (5.03) to pending client {} with token {}. ObservationInfo: {}",
-      clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(), 
+      clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(),
       clientExchange.advanced().getRequest().getToken(), obsInfo);
-      
-      LOGGER.debug("Removing OSCORE option for informative response");
-      clientExchange.advanced().getRequest().getOptions().removeOscore();
-      clientExchange.advanced().setCryptographicContextID(null);
-      
+
+      // The informative response is a unicast error, not a notification.
+      // Remove Observe so the OSCORE layer does not add a Partial IV to the
+      // response, which would cause an AAD mismatch with the client.
+      clientExchange.advanced().getRequest().getOptions().removeObserve();
 
       clientExchange.respond(response);
   }
