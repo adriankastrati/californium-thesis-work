@@ -1,8 +1,6 @@
 <configuration>
 
 	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-		<!-- encoders are assigned the type ch.qos.logback.classic.encoder.PatternLayoutEncoder 
-			by default -->
 		<encoder>
 			<pattern>%d{HH:mm:ss.SSS} %level [%logger{0}]: %msg%n</pattern>
 		</encoder>
@@ -32,11 +30,11 @@
 		<appender-ref ref="STDOUT" />
 	</logger>
 
-  	<logger name="org.eclipse.californium.core.network.stack.UdpMatcher" level="TRACE" additivity="false">
+	<logger name="org.eclipse.californium.core.network.stack.UdpMatcher" level="TRACE" additivity="false">
 		<appender-ref ref="STDOUT" />
 	</logger>
 
-  	<logger name="org.eclipse.californium.core.network.stack.BaseMatcher" level="TRACE" additivity="false">
+	<logger name="org.eclipse.californium.core.network.stack.BaseMatcher" level="TRACE" additivity="false">
 		<appender-ref ref="STDOUT" />
 	</logger>
 
@@ -44,7 +42,6 @@
 		<appender-ref ref="STDOUT" />
 	</logger>
 
-	<!-- Enable TRACE for all Californium classes -->
 	<root level="TRACE">
 		<appender-ref ref="STDOUT" />
 	</root>

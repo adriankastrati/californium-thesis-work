@@ -81,7 +81,6 @@ public final class InMemoryObservationStore implements ObservationStore {
 
 	@Override
 	public Observation put(Token key, Observation obs) {
-
 		if (key == null) {
 			throw new NullPointerException("token must not be null");
 		} else if (obs == null) {

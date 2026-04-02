@@ -1,28 +1,23 @@
 /*******************************************************************************
  * Copyright (c) 2020 Bosch.IO GmbH and others.
- * 
+ *
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
- * 
+ *
  * The Eclipse Public License is available at
  *    http://www.eclipse.org/legal/epl-v20.html
  * and the Eclipse Distribution License is available at
  *    http://www.eclipse.org/org/documents/edl-v10.html.
- * 
+ *
  * Contributors:
  *    Bosch.IO GmbH - initial implementation
  ******************************************************************************/
 package org.eclipse.californium.examples;
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 
-import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.exception.ConnectorException;
-
 
 /**
  * Main starter class for jar execution.
@@ -30,89 +25,76 @@ import org.eclipse.californium.elements.exception.ConnectorException;
 public class AClient {
 
 	public static void main(String[] args) throws IOException, ConnectorException, InterruptedException {
-		
+
 		String uri = "coap://172.20.10.2:5683/";
 		String uri_get = "get";
-		String[] resource = new String[]{uri+uri_get};
-		
+		String[] resource = new String[] { uri + uri_get };
+
 		String content;
-	
 		int rounds = 1;
 
-		
 		switch (args[0]) {
 			case "obs":
 				System.out.println("OBSERVE");
-				ObserveClient.main(uri+"obs", 20);
+				ObserveClient.main(uri + "obs", 20);
 				break;
 			case "get":
-				System.out.println("GET");				
+				System.out.println("GET");
 				GETClient.main(resource);
 				break;
 			case "post":
 				System.out.println("POST");
-				content = Integer.toString((int)(Math.random() * 50 + 1));
-				POSTClient.main(uri+"obs", content);
+				content = Integer.toString((int) (Math.random() * 50 + 1));
+				POSTClient.main(uri + "obs", content);
 				break;
-			case "put":	
-				System.out.println("executing random put: " + rounds + "times");
-				
-				for(int i = 0; i < rounds; i++) {
-					content = Integer.toString((int)(Math.random() * 50 + 1));
-					PUTClient.main(uri+"obs", content);
-				}	
+			case "put":
+				System.out.println("executing random put: " + rounds + " times");
+				for (int i = 0; i < rounds; i++) {
+					content = Integer.toString((int) (Math.random() * 50 + 1));
+					PUTClient.main(uri + "obs", content);
+				}
 				break;
-			case "put-mult":		
-				content = Integer.toString((int)(Math.random() * 50 + 1));
-				PUTClient.main(uri+"mult", content);
+			case "put-mult":
+				content = Integer.toString((int) (Math.random() * 50 + 1));
+				PUTClient.main(uri + "mult", content);
 				break;
-
-	      case "mult":
-	        System.out.println("MULT");
-	        MulticastObserveClient.main(uri+"mult",1000);
-	        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
-	        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
-	        break;
-	      case "OSCORE-mult-1":
-		        System.out.println(uri+"OSCORE-mult");
-		        OSCOREMulticastObserveClient.main(uri+"OSCORE-mult", 1);
-		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
-		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
-		        break;
-	      case "OSCORE-mult-2":
-		        System.out.println(uri+"OSCORE-mult");
-		        OSCOREMulticastObserveClient.main(uri+"OSCORE-mult", 2);
-		        break;
-	      case "OSCORE-obs":
-		        System.out.println(uri+"OSCORE-obs");
-		        OSCOREObserveClient.main(uri+"obs",1000, 2);
-		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
-		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
-		        break;
-	      case "OSCORE-obs-put":
-		        System.out.println(uri+"OSCORE-obs-put");
-	    	  	content = Integer.toString((int)(Math.random() * 50 + 1));
-		        OSCOREPutClient.main(uri+"obs",content);
-		        // InetAddress groupAddr = InetAddress.getByName("224.0.1.187");
-		        // MulticastObserveClient.setupMulticastReceiverOnce(groupAddr, 61616, Configuration.createStandardWithoutFile());
-		        break;
-	      case "OSCORE-put-mult":
-	    	  	content = Integer.toString((int)(Math.random() * 50 + 1));
-				OSCOREPutClient.main(uri+"OSCORE-mult", content);
-		        break;
-				
+			case "mult":
+				System.out.println("MULT");
+				MulticastObserveClient.main(uri + "mult", 1000);
+				break;
+			case "OSCORE-mult-1":
+				System.out.println(uri + "OSCORE-mult");
+				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 1);
+				break;
+			case "OSCORE-mult-2":
+				System.out.println(uri + "OSCORE-mult");
+				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 2);
+				break;
+			case "OSCORE-obs":
+				System.out.println(uri + "OSCORE-obs");
+				OSCOREObserveClient.main(uri + "obs", 1000, 2);
+				break;
+			case "OSCORE-obs-put":
+				System.out.println(uri + "OSCORE-obs-put");
+				content = Integer.toString((int) (Math.random() * 50 + 1));
+				OSCOREPutClient.main(uri + "obs", content);
+				break;
+			case "OSCORE-put-mult":
+				content = Integer.toString((int) (Math.random() * 50 + 1));
+				OSCOREPutClient.main(uri + "OSCORE-mult", content);
+				break;
 			case "mix":
 				System.out.println("-----------[GET]-------------");
 				GETClient.main(resource);
-				
+
 				System.out.println("-----------[POST]-------------");
-				content = Integer.toString((int)(Math.random() * 50 + 1));
+				content = Integer.toString((int) (Math.random() * 50 + 1));
 				POSTClient.main(uri, content);
 
 				System.out.println("-----------[GET]-------------");
 				GETClient.main(resource);
-				break;				
+				break;
 		}
 		System.exit(-1);
-	}	
+	}
 }

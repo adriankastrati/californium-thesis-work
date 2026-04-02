@@ -1,15 +1,15 @@
 /*******************************************************************************
  * Copyright (c) 2015 Institute for Pervasive Computing, ETH Zurich and others.
- * 
+ *
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
- * 
+ *
  * The Eclipse Public License is available at
  *    http://www.eclipse.org/legal/epl-v20.html
  * and the Eclipse Distribution License is available at
  *    http://www.eclipse.org/org/documents/edl-v10.html.
- * 
+ *
  * Contributors:
  *    Matthias Kovatsch - creator and main architect
  *    Kai Hudalla (Bosch Software Innovations GmbH) - add endpoints for all IP addresses
@@ -17,19 +17,19 @@
  ******************************************************************************/
 package org.eclipse.californium.examples;
 
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
 
-import org.eclipse.californium.core.observe.GroupObservationsInfo;
-import org.eclipse.californium.core.observe.ObserveRelation;
-import org.eclipse.californium.core.server.resources.Resource;
 import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.CoapServer;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
+import org.eclipse.californium.core.observe.GroupObservationsInfo;
+import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.TcpConfig;
 import org.eclipse.californium.elements.config.UdpConfig;
@@ -37,11 +37,12 @@ import org.eclipse.californium.elements.util.DaemonThreadFactory;
 import org.eclipse.californium.elements.util.ExecutorsUtil;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.elements.util.ProtocolScheduledExecutorService;
-
-import java.net.Inet4Address;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class AHelloWorldServer extends CoapServer {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(AHelloWorldServer.class);
 
 	static {
 		CoapConfig.register();
@@ -49,33 +50,30 @@ public class AHelloWorldServer extends CoapServer {
 		TcpConfig.register();
 	}
 
-  
-	/*
+	/**
 	 * Application entry point.
 	 */
 	public static void main(String[] args) {
-		try {	
+		try {
 			AHelloWorldServer server = new AHelloWorldServer();
-
 			server.addEndpoint();
 			server.start();
 			try {
 				Thread.currentThread().join();
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+				LOGGER.warn("Main thread interrupted", e);
 			}
 		} catch (SocketException e) {
-			System.err.println("Failed to init: " + e.getMessage());
+			LOGGER.error("Failed to initialize server: {}", e.getMessage());
 		}
 	}
 
 	/**
-	 * Add individual endpoint listening on default CoAP to adress
+	 * Add endpoints listening on the default CoAP port.
 	 */
 	private void addEndpoint() {
-		int port = Configuration.getStandard().get(CoapConfig.COAP_PORT);
 		Configuration config = Configuration.getStandard();
+		int port = config.get(CoapConfig.COAP_PORT);
 
 		// Loopback endpoint for local unicast
 		InetAddress loopbackAddr = InetAddress.getLoopbackAddress();
@@ -84,11 +82,12 @@ public class AHelloWorldServer extends CoapServer {
 		loopbackBuilder.setInetSocketAddress(loopbackSocket);
 		loopbackBuilder.setConfiguration(config);
 		addEndpoint(loopbackBuilder.build());
+
 		final ProtocolScheduledExecutorService executorService = ExecutorsUtil
 				.newSingleThreadedProtocolExecutor(new DaemonThreadFactory(":CoapEndpoint")); //$NON-NLS-1$
 		this.setExecutor(executorService, isRunning());
-    
-		// Physical interface endpoint for multicast to work
+
+		// Physical interface endpoint for multicast support
 		Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
 		if (ipv4 != null) {
 			InetSocketAddress physicalSocket = new InetSocketAddress(ipv4, port);
@@ -96,100 +95,78 @@ public class AHelloWorldServer extends CoapServer {
 			physicalBuilder.setInetSocketAddress(physicalSocket);
 			physicalBuilder.setConfiguration(config);
 			addEndpoint(physicalBuilder.build());
-			System.out.println("Added physical interface endpoint: " + physicalSocket);
+			LOGGER.info("Added physical interface endpoint: {}", physicalSocket);
 		}
 	}
 
-	/*
-	 * Constructor for a new Hello-World server. Here, the resources of the
-	 * server are initialized.
+	/**
+	 * Constructor for the Hello-World server. Initializes resources.
 	 */
 	public AHelloWorldServer() throws SocketException {
-   
-    // Add get and obs
-    GroupObservationsInfo.init();
-    add(new HelloWorldResource());
-    add(new ObservableResource());
-    add(new MulticastObservableResource("mult", true, this.getMessageDeliverer()));
-    for (Resource res : this.getRoot().getChildren()) {
-		System.out.print(res.getURI() + " ");
+		GroupObservationsInfo.init();
+		add(new HelloWorldResource());
+		add(new ObservableResource());
+		add(new MulticastObservableResource("mult", true, this.getMessageDeliverer()));
 	}
-}
 
-	/*
-	 * Definition of the Hello-World Resource
+	/**
+	 * Simple GET resource that supports POST to update its content.
 	 */
 	static class HelloWorldResource extends CoapResource {
-		private String content;
-		
-		public HelloWorldResource() {
 
-			// set resource identifier
+		private String content;
+
+		public HelloWorldResource() {
 			super("get");
-			
-			// set display name
 			getAttributes().setTitle("pasta Resource");
 			this.content = "spaghetti";
-			System.out.println(this.getPath());
 		}
 
 		@Override
 		public void handleGET(CoapExchange exchange) {
-
-			// respond to the request
 			exchange.respond(content);
 		}
-		
+
 		@Override
 		public void handlePOST(CoapExchange exchange) {
 			String requestText = exchange.getRequestText();
 			String old = this.content;
 			this.content = requestText;
-			String response_payload = old + " ->" + content;
-			exchange.respond(ResponseCode.CHANGED, response_payload);
+			String responsePayload = old + " ->" + content;
+			exchange.respond(ResponseCode.CHANGED, responsePayload);
 			changed();
-			
 		}
 	}
-	
+
+	/**
+	 * Observable resource that supports publish-subscribe style notifications.
+	 */
 	static class ObservableResource extends CoapResource {
 
 		private volatile String content;
-		private final String originalContent;
-		
-		public ObservableResource() {
 
-			// set resource identifier
+		public ObservableResource() {
 			super("obs");
-			// set display name
 			getAttributes().setTitle("pub-sub Resource");
 			setObservable(true);
 			setObserveType(null);
-			System.out.println(this.getPath());
-
-		
 			this.content = "1";
-			this.originalContent = this.content;
 		}
 
-		
 		@Override
 		public void handleGET(CoapExchange exchange) {
-
-			// respond to the request
 			exchange.respond(ResponseCode.CONTENT, this.content);
 		}
-		
+
 		@Override
 		public void changed() {
 			super.changed();
 		}
-		 
+
 		@Override
-		    public void removeObserveRelation(ObserveRelation relation) {
-		        super.removeObserveRelation(relation);
-		        System.out.println("Observe relation removed by client");
-		 }
-		
+		public void removeObserveRelation(ObserveRelation relation) {
+			super.removeObserveRelation(relation);
+			LOGGER.info("Observe relation removed by client");
+		}
 	}
 }

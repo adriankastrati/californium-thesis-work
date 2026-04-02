@@ -125,11 +125,6 @@ public class ObjectSecurityContextLayer extends AbstractLayer {
 				}
 				OSCoreCtx ctx = ctxDb.getContext(uri);
 
-				// if (ctx == null) {
-				// LOGGER.error(ErrorDescriptions.CTX_NULL);
-				// throw new OSException(ErrorDescriptions.CTX_NULL);
-				// }
-
 				// Initiate context re-derivation procedure if flag is set
 				if (ctx != null && ctx.getContextRederivationPhase() == PHASE.CLIENT_INITIATE) {
 					ContextRederivation.setLostContext(ctxDb, uri);

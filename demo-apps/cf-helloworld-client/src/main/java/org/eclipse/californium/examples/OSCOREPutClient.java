@@ -1,32 +1,18 @@
 package org.eclipse.californium.examples;
 
 import java.io.IOException;
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
-import java.net.URI;
-import java.net.URISyntaxException;
 
 import org.eclipse.californium.core.CoapClient;
-import org.eclipse.californium.core.CoapHandler;
-import org.eclipse.californium.core.CoapObserveRelation;
 import org.eclipse.californium.core.CoapResponse;
 import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
-import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
-import org.eclipse.californium.core.observe.ObservationInfo;
-import org.eclipse.californium.elements.AddressEndpointContext;
-import org.eclipse.californium.elements.UDPConnector;
-import org.eclipse.californium.elements.UdpMulticastConnector;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.UdpConfig;
 import org.eclipse.californium.elements.exception.ConnectorException;
-import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import java.security.Provider;
 import java.security.Security;
 
@@ -45,21 +31,22 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class OSCOREPutClient {
+
 	/* --- OSCORE Security Context information (sender) --- */
 	private final static HashMapCtxDB db = new HashMapCtxDB();
 	private final static AlgorithmID alg = AlgorithmID.AES_CCM_16_64_128;
 	private final static AlgorithmID kdf = AlgorithmID.HMAC_SHA_256;
 
-	// Group OSCORE specific values for the countersignature (EdDSA)
+	// Group OSCORE countersignature algorithm (EdDSA)
 	private final static AlgorithmID algCountersign = AlgorithmID.EDDSA;
 
-	// Encryption algorithm for when using Group mode
+	// Encryption algorithm for Group mode
 	private final static AlgorithmID algGroupEnc = AlgorithmID.AES_CCM_16_64_128;
 
 	// Algorithm for key agreement
 	private final static AlgorithmID algKeyAgreement = AlgorithmID.ECDH_SS_HKDF_256;
 
-	// test vector OSCORE draft Appendix C.1.1
+	// Master secret and salt from OSCORE draft Appendix C.1.1
 	private final static byte[] master_secret = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
 			0x0C, 0x0D, 0x0E, 0x0F, 0x10 };
 	private final static byte[] master_salt = { (byte) 0x9e, (byte) 0x7c, (byte) 0xa9, (byte) 0x22, (byte) 0x23,
@@ -71,7 +58,6 @@ public class OSCOREPutClient {
 			"A501781A636F6170733A2F2F6D79736974652E6578616D706C652E636F6D026C67726F75706D616E6167657203781A636F6170733A2F2F646F6D61696E2E6578616D706C652E6F7267041AAB9B154F08A101A4010103272006215820CDE3EFD3BC3F99C9C9EE210415C6CBA55061B5046E963B8A58C9143A61166472");
 
 	private final static byte[] sender_1_ID = new byte[] { 0x25 };
-
 	private final static byte[] sender_1_public_key_bytes = StringUtil.hex2ByteArray(
 			"A501781B636F6170733A2F2F746573746572312E6578616D706C652E636F6D02666D796E616D6503781A636F6170733A2F2F68656C6C6F312E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820069E912B83963ACC5941B63546867DEC106E5B9051F2EE14F3BC5CC961ACD43A");
 	private static MultiKey sender_1_private_key;
@@ -80,7 +66,8 @@ public class OSCOREPutClient {
 			(byte) 0x71, (byte) 0x7A, (byte) 0xB0, (byte) 0x88, (byte) 0xC9, (byte) 0xF4, (byte) 0xAF, (byte) 0x6F,
 			(byte) 0xC9, (byte) 0x84, (byte) 0x45, (byte) 0x53, (byte) 0xE4, (byte) 0xAD, (byte) 0x4C, (byte) 0x42,
 			(byte) 0xCC, (byte) 0x73, (byte) 0x52, (byte) 0x39 };
-  //Server 
+
+	// Server
 	private final static byte[] server_ID = new byte[] { 0x52 };
 	private static byte[] server_public_key_bytes = StringUtil.hex2ByteArray(
 			"A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A401010327200621582077EC358C1D344E41EE0E87B8383D23A2099ACD39BDF989CE45B52E887463389B");
@@ -89,52 +76,43 @@ public class OSCOREPutClient {
 	private final static byte[] group_identifier = new byte[] { 0x44, 0x61, 0x6c }; // GID
 
 	/* --- OSCORE Security Context information --- */
-  static {
-    CoapConfig.register();
-    UdpConfig.register();
-  }
-  private static final Logger LOGGER = LoggerFactory.getLogger(OSCOREPutClient.class);
 
-  private static UDPConnector udpConnector;
-  private static UdpMulticastConnector multicastReceiver;
-  private static CoapEndpoint endpoint;
-  private static CoapClient multicastClient;
-  private static boolean receiverReady = false;
+	static {
+		CoapConfig.register();
+		UdpConfig.register();
+	}
 
- 
-  private static void setupOscore(String requestURI) throws OSException {
-	// Install cryptographic providers
-			Provider EdDSA = new EdDSASecurityProvider();
-			Security.insertProviderAt(EdDSA, 1);
-			// InstallCryptoProviders.generateCounterSignKey();
+	private static final Logger LOGGER = LoggerFactory.getLogger(OSCOREPutClient.class);
 
-			// Add private & public keys for sender & receiver(s)
-			sender_1_private_key = new MultiKey(sender_1_public_key_bytes, sender_1_private_key_bytes);
-			server_public_key = new MultiKey(server_public_key_bytes);
+	private static void setupOscore(String requestURI) throws OSException {
+		// Install cryptographic providers
+		Provider EdDSA = new EdDSASecurityProvider();
+		Security.insertProviderAt(EdDSA, 1);
 
-			// If OSCORE is being used set the context information
+		// Add private and public keys for sender and receiver
+		sender_1_private_key = new MultiKey(sender_1_public_key_bytes, sender_1_private_key_bytes);
+		server_public_key = new MultiKey(server_public_key_bytes);
 
-				byte[] gmPublicKey = gm_public_key_bytes;
-				GroupCtx commonCtx = new GroupCtx(master_secret, master_salt, alg, kdf, group_identifier, algCountersign,
-						algGroupEnc, algKeyAgreement, gmPublicKey);
+		// Set up the OSCORE security context
+		byte[] gmPublicKey = gm_public_key_bytes;
+		GroupCtx commonCtx = new GroupCtx(master_secret, master_salt, alg, kdf, group_identifier, algCountersign,
+				algGroupEnc, algKeyAgreement, gmPublicKey);
 
-				commonCtx.addSenderCtxCcs(sender_1_ID, sender_1_private_key);
-				commonCtx.addRecipientCtxCcs(server_ID, REPLAY_WINDOW, server_public_key);
+		commonCtx.addSenderCtxCcs(sender_1_ID, sender_1_private_key);
+		commonCtx.addRecipientCtxCcs(server_ID, REPLAY_WINDOW, server_public_key);
 
-				db.addContext(requestURI, commonCtx);
+		db.addContext(requestURI, commonCtx);
 
-				OSCoreCoapStackFactory.useAsDefault(db);				
-
-  }
+		OSCoreCoapStackFactory.useAsDefault(db);
+	}
 
 	public static void main(String requestURI, String requestPayload) {
-
 		Configuration config = Configuration.getStandard();
 		Configuration.setStandard(config);
 		try {
 			setupOscore(requestURI);
 		} catch (OSException e) {
-			e.printStackTrace();
+			LOGGER.error("Failed to set up OSCORE context", e);
 			return;
 		}
 
@@ -149,27 +127,26 @@ public class OSCOREPutClient {
 		request.setType(Type.NON);
 		request.getOptions().setOscore(Bytes.EMPTY);
 
-		System.out.println("==================");
-		System.out.println("Uses OSCORE: true");
-		System.out.println("Request destination: " + requestURI);
-		System.out.println("Request method: " + request.getCode());
-		System.out.println("Request payload: " + requestPayload);
-		System.out.println("Outgoing port: " + endpoint.getAddress().getPort());
-		System.out.println("==================");
-	
+		LOGGER.info("==================");
+		LOGGER.info("Uses OSCORE: true");
+		LOGGER.info("Request destination: {}", requestURI);
+		LOGGER.info("Request method: {}", request.getCode());
+		LOGGER.info("Request payload: {}", requestPayload);
+		LOGGER.info("Outgoing port: {}", endpoint.getAddress().getPort());
+		LOGGER.info("==================");
+
 		try {
-		
-      CoapResponse response = client.advanced(request);
+			CoapResponse response = client.advanced(request);
 			if (response != null) {
-				System.out.println(response.getCode());
-				System.out.println(response.getOptions());
-				System.out.println(response.getResponseText());
-				System.out.println(Utils.prettyPrint(response));
+				LOGGER.info("Response code: {}", response.getCode());
+				LOGGER.info("Response options: {}", response.getOptions());
+				LOGGER.info("Response text: {}", response.getResponseText());
+				LOGGER.info("Pretty print:\n{}", Utils.prettyPrint(response));
 			} else {
-				System.out.println("No response received.");
+				LOGGER.warn("No response received.");
 			}
 		} catch (ConnectorException | IOException e) {
-			System.err.println("Got an error: " + e);
+			LOGGER.error("Error sending request", e);
 		}
 		client.shutdown();
 	}

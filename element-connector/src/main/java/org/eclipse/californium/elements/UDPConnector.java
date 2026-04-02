@@ -521,18 +521,20 @@ public class UDPConnector implements Connector {
 				try {
 					raw.onContextEstablished(connectionContext);
 					if (datagram.getAddress().isMulticastAddress()) {
-            MulticastSocket mcSocket = multicastSendSocket;
+						MulticastSocket mcSocket = multicastSendSocket;
 						if (mcSocket != null) {
-              mcSocket.send(datagram);
-              LOGGER.debug("sending via multicast");
+							mcSocket.send(datagram);
+							LOGGER.debug("Sent {} bytes via multicast to {}", datagram.getLength(),
+									StringUtil.toLog(destinationAddress));
 						}
 					} else {
-            LOGGER.debug("sending via unicast");
 						currentSocket.send(datagram);
+						LOGGER.debug("Sent {} bytes via unicast to {}", datagram.getLength(),
+								StringUtil.toLog(destinationAddress));
 					}
 					raw.onSent();
 				} catch (IOException ex) {
-					LOGGER.debug("Send failed to {}: {}", datagram.getSocketAddress(), ex.getMessage(), ex);
+					LOGGER.debug("Send failed to {}: {}", datagram.getSocketAddress(), ex.getMessage());
 					raw.onError(ex);
 				}
 			} else {

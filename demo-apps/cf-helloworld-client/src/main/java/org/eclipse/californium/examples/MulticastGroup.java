@@ -1,15 +1,15 @@
 /*******************************************************************************
  * Copyright (c) 2018 Bosch Software Innovations GmbH and others.
- * 
+ *
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
- * 
+ *
  * The Eclipse Public License is available at
  *    http://www.eclipse.org/legal/epl-v20.html
  * and the Eclipse Distribution License is available at
  *    http://www.eclipse.org/org/documents/edl-v10.html.
- * 
+ *
  * Contributors:
  *    Bosch Software Innovations - initial creation
  ******************************************************************************/
@@ -19,25 +19,18 @@ import java.io.File;
 import java.io.IOException;
 import java.net.BindException;
 import java.net.Inet4Address;
-import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.UnknownHostException;
-import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import org.eclipse.californium.core.CoapExchange;
-import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.CoapServer;
-import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.coap.CoAP;
 import org.eclipse.californium.core.coap.Request;
-import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.interceptors.MessageInterceptor;
-import org.eclipse.californium.core.server.resources.MyIpResource;
 import org.eclipse.californium.elements.UDPConnector;
 import org.eclipse.californium.elements.UdpMulticastConnector;
 import org.eclipse.californium.elements.config.Configuration;
@@ -74,19 +67,13 @@ public class MulticastGroup {
 		Configuration config = Configuration.createWithFile(CONFIG_FILE, CONFIG_HEADER, DEFAULTS);
 		Configuration.setStandard(config);
 		int unicastPort = config.get(CoapConfig.COAP_PORT);
-	
+
 		CoapServer server = new CoapServer(config);
 		createEndpoints(server, 0, 61616, config);
 		server.start();
 	}
 
 	private static void createEndpoints(CoapServer server, int unicastPort, int multicastPort, Configuration config) {
-		// UDPConnector udpConnector = new UDPConnector(new
-		// InetSocketAddress(unicastPort));
-		// udpConnector.setReuseAddress(true);
-		// CoapEndpoint coapEndpoint = new
-		// CoapEndpoint.Builder().setNetworkConfig(config).setConnector(udpConnector).build();
-
 		NetworkInterface networkInterface = NetworkInterfacesUtil.getMulticastInterface();
 		if (networkInterface == null) {
 			LOGGER.warn("No multicast network-interface found!");
@@ -110,21 +97,20 @@ public class MulticastGroup {
 
 			Inet4Address broadcast = NetworkInterfacesUtil.getBroadcastIpv4();
 			if (broadcast != null) {
-				// windows seems to fail to open a broadcast receiver
+				// Windows may fail to open a broadcast receiver
 				builder = new UdpMulticastConnector.Builder().setLocalAddress(broadcast, multicastPort)
 						.setConfiguration(config);
 				createReceiver(builder, udpConnector);
 			}
-      coapEndpoint.addInterceptor(new MessageInterceptor() {
+			coapEndpoint.addInterceptor(new MessageInterceptor() {
 
-      @Override
-      public void receiveRequest(Request response) {
-
-          LOGGER.debug("Incoming response:");
-          LOGGER.debug("Token: {}", response.getTokenString());
-          LOGGER.debug("From: {}", response.getSourceContext().getPeerAddress());
-      }
-      });
+				@Override
+				public void receiveRequest(Request response) {
+					LOGGER.debug("Incoming response:");
+					LOGGER.debug("Token: {}", response.getTokenString());
+					LOGGER.debug("From: {}", response.getSourceContext().getPeerAddress());
+				}
+			});
 			server.addEndpoint(coapEndpoint);
 			LOGGER.info("IPv4 - multicast");
 		}
@@ -143,7 +129,7 @@ public class MulticastGroup {
 		try {
 			multicastConnector.start();
 		} catch (BindException ex) {
-			// binding to multicast seems to fail on windows
+			// Binding to multicast may fail on Windows
 			if (builder.getLocalAddress().getAddress().isMulticastAddress()) {
 				int port = builder.getLocalAddress().getPort();
 				builder.setLocalPort(port);
@@ -152,15 +138,15 @@ public class MulticastGroup {
 				try {
 					multicastConnector.start();
 				} catch (IOException e) {
-					e.printStackTrace();
+					LOGGER.error("Failed to start multicast connector", e);
 					multicastConnector = null;
 				}
 			} else {
-				ex.printStackTrace();
+				LOGGER.error("Failed to bind multicast receiver", ex);
 				multicastConnector = null;
 			}
 		} catch (IOException e) {
-			e.printStackTrace();
+			LOGGER.error("Failed to start multicast connector", e);
 			multicastConnector = null;
 		}
 		if (multicastConnector != null && connector != null) {

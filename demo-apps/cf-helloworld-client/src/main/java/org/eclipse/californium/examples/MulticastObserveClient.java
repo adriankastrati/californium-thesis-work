@@ -5,6 +5,7 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
+
 import org.eclipse.californium.core.CoapClient;
 import org.eclipse.californium.core.CoapHandler;
 import org.eclipse.californium.core.CoapObserveRelation;
@@ -28,176 +29,176 @@ import org.slf4j.LoggerFactory;
 
 public class MulticastObserveClient {
 
-  static {
-    CoapConfig.register();
-    UdpConfig.register();
-  }
-  private static final Logger LOGGER = LoggerFactory.getLogger(MulticastObserveClient.class);
+	static {
+		CoapConfig.register();
+		UdpConfig.register();
+	}
 
-  private static UDPConnector udpConnector;
-  private static UdpMulticastConnector multicastReceiver;
-  private static CoapEndpoint endpoint;
-  private static CoapClient multicastClient;
-  private static boolean receiverReady = false;
+	private static final Logger LOGGER = LoggerFactory.getLogger(MulticastObserveClient.class);
 
-  private static class MulticastObserveHandler implements CoapHandler {
+	private static UDPConnector udpConnector;
+	private static UdpMulticastConnector multicastReceiver;
+	private static CoapEndpoint endpoint;
+	private static CoapClient multicastClient;
+	private static boolean receiverReady = false;
 
-    private int notificationCount = 0;
-    private final int targetCount;
+	private static class MulticastObserveHandler implements CoapHandler {
 
-    public MulticastObserveHandler(int targetCount) {
-      this.targetCount = targetCount;
-    }
+		private int notificationCount = 0;
+		private final int targetCount;
 
-    public synchronized void waitForNotifications() {
-      while (notificationCount < targetCount) {
-        try {
-          this.wait();
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          return;
-        }
-      }
-    }
+		public MulticastObserveHandler(int targetCount) {
+			this.targetCount = targetCount;
+		}
 
-    @Override
-    public void onLoad(CoapResponse response) {
-      LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
+		public synchronized void waitForNotifications() {
+			while (notificationCount < targetCount) {
+				try {
+					this.wait();
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					return;
+				}
+			}
+		}
 
-      // First response might be an "informative response" containing ObservationInfo (group+token).
-      if (response.getOptions().isContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR)) {
-        LOGGER.info("Got APPLICATION_INFORMATIVE_RESPONSE_CBOR (ObservationInfo)");
-        ObservationInfo info = ObservationInfo.fromCbor(response.getPayload());
+		@Override
+		public void onLoad(CoapResponse response) {
+			LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
 
-        InetSocketAddress groupSock = info.getTpInfo().getTpiClient().toSocketAddress();
-        InetAddress groupAddr = groupSock.getAddress();
-        int groupPort = groupSock.getPort();
-        Token multicastToken = info.getToken();
+			// First response might be an informative response containing ObservationInfo (group + token).
+			if (response.getOptions().isContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR)) {
+				LOGGER.info("Got APPLICATION_INFORMATIVE_RESPONSE_CBOR (ObservationInfo)");
+				ObservationInfo info = ObservationInfo.fromCbor(response.getPayload());
 
-        LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
-        LOGGER.info("Token: {}", multicastToken.getAsString());
-        LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
+				InetSocketAddress groupSock = info.getTpInfo().getTpiClient().toSocketAddress();
+				InetAddress groupAddr = groupSock.getAddress();
+				int groupPort = groupSock.getPort();
+				Token multicastToken = info.getToken();
 
-        if (!receiverReady) {
-          try {
-            // Build receiver stack (join group + bind port) - MUST come first to create multicastClient
-            LOGGER.info("Setting up multicast receiver...");
-            setupMulticastReceiverOnce(groupAddr, groupPort, Configuration.createStandardWithoutFile(), multicastToken);
-            LOGGER.info("Multicast receiver activated.");
-            
-            // Now create phantom request and register observe relation
-            Request phantomRequest = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
-            LOGGER.info("Created PhantomRequest with token: {}", multicastToken);
-            
-            CoapObserveRelation phantomRelation = multicastClient.observe(phantomRequest, this);
-            LOGGER.info("Registered phantom observe relation.");
+				LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
+				LOGGER.info("Token: {}", multicastToken.getAsString());
+				LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
 
-            receiverReady = true;
-          } catch (IOException e) {
-            LOGGER.error("Failed to activate multicast receiver", e);
-          }
-        } else {
-          LOGGER.info("Multicast receiver already active (ignoring extra informative response).");
-        }
+				if (!receiverReady) {
+					try {
+						LOGGER.info("Setting up multicast receiver...");
+						setupMulticastReceiverOnce(groupAddr, groupPort, Configuration.createStandardWithoutFile(), multicastToken);
+						LOGGER.info("Multicast receiver activated.");
 
-        return;
-      }
+						Request phantomRequest = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
+						LOGGER.info("Created PhantomRequest with token: {}", multicastToken);
 
-      // Otherwise it's a normal notification payload
-      synchronized (this) {
-        notificationCount++;
-        notifyAll();
-      }
-    }
+						CoapObserveRelation phantomRelation = multicastClient.observe(phantomRequest, this);
+						LOGGER.info("Registered phantom observe relation.");
 
-    @Override
-    public void onError() {
-      LOGGER.error("Error receiving multicast notification");
-    }
-  }
+						receiverReady = true;
+					} catch (IOException e) {
+						LOGGER.error("Failed to activate multicast receiver", e);
+					}
+				} else {
+					LOGGER.info("Multicast receiver already active (ignoring extra informative response).");
+				}
 
-  /**
-   * Creates a phantom request to register an observe relation for receiving multicast notifications.
-   */
-  private static Request createPhantomRequest(Token multicastToken, String requestedURI, InetAddress groupAddr, int groupPort) {
-    Request phantomRequest = Request.newGet();
-    phantomRequest.setToken(multicastToken);
-    phantomRequest.setObserve();
-    phantomRequest.setDestinationContext(new AddressEndpointContext(new InetSocketAddress(groupAddr, groupPort)));
-    phantomRequest.setURI(requestedURI);
-    phantomRequest.setType(Type.NON);
-    phantomRequest.setShouldSend(false);
-    LOGGER.debug("Created phantom request: {}", phantomRequest);
-    return phantomRequest;
-  }
+				return;
+			}
 
-  public static void setupMulticastReceiverOnce(InetAddress groupAddr, int port, Configuration config, Token multicastToken) throws IOException {
-    NetworkInterface ni = NetworkInterfacesUtil.getMulticastInterface();
-    if (ni == null) {
-      throw new IOException("No multicast network interface found");
-    }
+			// Normal notification payload
+			synchronized (this) {
+				notificationCount++;
+				notifyAll();
+			}
+		}
 
-    // Get IPv4 address on that interface (prevents binding to ::)
-    Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
-    if (ipv4 == null) {
-      throw new IOException("No IPv4 address found on multicast interface " + ni.getDisplayName());
-    }
+		@Override
+		public void onError() {
+			LOGGER.error("Error receiving multicast notification");
+		}
+	}
 
-    InetSocketAddress bind = new InetSocketAddress(ipv4, 0);
-    udpConnector = new UDPConnector(bind, config);
-    udpConnector.setReuseAddress(true);
-    LOGGER.info("Binding UDPConnector to {} (ephemeral port) on {}", ipv4, ni.getDisplayName());
-    
-    UdpMulticastConnector.Builder mcBuilder = new UdpMulticastConnector.Builder()
-        .setConfiguration(config)
-        .setMulticastReceiver(true)
-        .setLocalPort(port)
-        .addMulticastGroup(groupAddr, ni);
-    
-    multicastReceiver = mcBuilder.build();
-    multicastReceiver.setLoopbackMode(true);
+	/**
+	 * Creates a phantom request to register an observe relation for receiving multicast notifications.
+	 */
+	private static Request createPhantomRequest(Token multicastToken, String requestedURI, InetAddress groupAddr, int groupPort) {
+		Request phantomRequest = Request.newGet();
+		phantomRequest.setToken(multicastToken);
+		phantomRequest.setObserve();
+		phantomRequest.setDestinationContext(new AddressEndpointContext(new InetSocketAddress(groupAddr, groupPort)));
+		phantomRequest.setURI(requestedURI);
+		phantomRequest.setType(Type.NON);
+		phantomRequest.setShouldSend(false);
+		LOGGER.debug("Created phantom request: {}", phantomRequest);
+		return phantomRequest;
+	}
 
-    try {
-      multicastReceiver.start();
-      LOGGER.info("Multicast receiver started on {} port {}", groupAddr, port);
-    } catch (java.net.BindException ex) {
-      LOGGER.warn("Bind to multicast address failed, retrying with port only: {}", ex.getMessage());
-      mcBuilder = new UdpMulticastConnector.Builder()
-          .setConfiguration(config)
-          .setMulticastReceiver(true)
-          .setLocalPort(port)
-          .addMulticastGroup(groupAddr, ni);
-      multicastReceiver = mcBuilder.build();
-      multicastReceiver.setLoopbackMode(true);
-      multicastReceiver.start();
-    }
+	public static void setupMulticastReceiverOnce(InetAddress groupAddr, int port, Configuration config, Token multicastToken) throws IOException {
+		NetworkInterface ni = NetworkInterfacesUtil.getMulticastInterface();
+		if (ni == null) {
+			throw new IOException("No multicast network interface found");
+		}
 
-    udpConnector.addMulticastReceiver(multicastReceiver);
+		Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
+		if (ipv4 == null) {
+			throw new IOException("No IPv4 address found on multicast interface " + ni.getDisplayName());
+		}
 
-    endpoint = new CoapEndpoint.Builder()
-        .setConfiguration(config)
-        .setConnector(udpConnector)
-        .build();
+		InetSocketAddress bind = new InetSocketAddress(ipv4, 0);
+		udpConnector = new UDPConnector(bind, config);
+		udpConnector.setReuseAddress(true);
+		LOGGER.info("Binding UDPConnector to {} (ephemeral port) on {}", ipv4, ni.getDisplayName());
 
-    endpoint.start();
+		UdpMulticastConnector.Builder mcBuilder = new UdpMulticastConnector.Builder()
+				.setConfiguration(config)
+				.setMulticastReceiver(true)
+				.setLocalPort(port)
+				.addMulticastGroup(groupAddr, ni);
 
-    multicastClient = new CoapClient();
-    multicastClient.setEndpoint(endpoint);
+		multicastReceiver = mcBuilder.build();
+		multicastReceiver.setLoopbackMode(true);
 
-    LOGGER.info("Joined group {} on interface {} port {}", groupAddr, ni.getDisplayName(), port);
-  }
+		try {
+			multicastReceiver.start();
+			LOGGER.info("Multicast receiver started on {} port {}", groupAddr, port);
+		} catch (java.net.BindException ex) {
+			LOGGER.warn("Bind to multicast address failed, retrying with port only: {}", ex.getMessage());
+			mcBuilder = new UdpMulticastConnector.Builder()
+					.setConfiguration(config)
+					.setMulticastReceiver(true)
+					.setLocalPort(port)
+					.addMulticastGroup(groupAddr, ni);
+			multicastReceiver = mcBuilder.build();
+			multicastReceiver.setLoopbackMode(true);
+			multicastReceiver.start();
+		}
 
-  public static void main(String requestedURI, int timeout) {
-    try {
-      CoapClient observeClient = new CoapClient(requestedURI);
-      MulticastObserveHandler handler = new MulticastObserveHandler(4);
-      CoapObserveRelation relation = observeClient.observe(handler);
-      handler.waitForNotifications();
-      relation.reactiveCancel();
-      observeClient.shutdown();
-      if (multicastClient != null) multicastClient.shutdown();
-    } catch (Exception e) {
-      LOGGER.error("Error in multicast observe client", e);
-    }
-  }
+		udpConnector.addMulticastReceiver(multicastReceiver);
+
+		endpoint = new CoapEndpoint.Builder()
+				.setConfiguration(config)
+				.setConnector(udpConnector)
+				.build();
+
+		endpoint.start();
+
+		multicastClient = new CoapClient();
+		multicastClient.setEndpoint(endpoint);
+
+		LOGGER.info("Joined group {} on interface {} port {}", groupAddr, ni.getDisplayName(), port);
+	}
+
+	public static void main(String requestedURI, int timeout) {
+		try {
+			CoapClient observeClient = new CoapClient(requestedURI);
+			MulticastObserveHandler handler = new MulticastObserveHandler(4);
+			CoapObserveRelation relation = observeClient.observe(handler);
+			handler.waitForNotifications();
+			relation.reactiveCancel();
+			observeClient.shutdown();
+			if (multicastClient != null) {
+				multicastClient.shutdown();
+			}
+		} catch (Exception e) {
+			LOGGER.error("Error in multicast observe client", e);
+		}
+	}
 }
