@@ -20,6 +20,7 @@ package org.eclipse.californium.examples;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.security.Provider;
 import java.security.Security;
@@ -38,6 +39,8 @@ import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.core.server.resources.Resource;
 import org.eclipse.californium.cose.AlgorithmID;
+import org.eclipse.californium.elements.UDPConnector;
+import org.eclipse.californium.elements.UdpMulticastConnector;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.UdpConfig;
 import org.eclipse.californium.elements.util.DaemonThreadFactory;
@@ -64,21 +67,42 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 	}
 
 	/**
-	 * Add individual endpoint listening on default CoAP address.
+	 * Add individual endpoint listening on default CoAP address,
+	 * with multicast send/receive support via UdpMulticastConnector.
 	 */
 	private void addEndpoint() {
 		int port = Configuration.getStandard().get(CoapConfig.COAP_PORT);
 		Configuration config = Configuration.getStandard();
 
-		// Physical interface endpoint (supports both unicast and multicast)
 		Inet4Address ipv4 = NetworkInterfacesUtil.getMulticastInterfaceIpv4();
-		if (ipv4 != null) {
+		NetworkInterface networkInterface = NetworkInterfacesUtil.getMulticastInterface();
+		if (ipv4 != null && networkInterface != null) {
 			InetSocketAddress physicalSocket = new InetSocketAddress(ipv4, port);
-			CoapEndpoint.Builder physicalBuilder = new CoapEndpoint.Builder();
-			physicalBuilder.setInetSocketAddress(physicalSocket);
-			physicalBuilder.setConfiguration(config);
-			addEndpoint(physicalBuilder.build());
-			System.out.println("Added physical interface endpoint: " + physicalSocket);
+			UDPConnector udpConnector = new UDPConnector(physicalSocket, config);
+			udpConnector.setReuseAddress(true);
+
+			// Attach a multicast receiver so the UDPConnector's send socket
+			// is bound to the correct network interface for outgoing multicast.
+			UdpMulticastConnector.Builder mcBuilder = new UdpMulticastConnector.Builder()
+					.setLocalAddress(multicastIP, GRP_PORT)
+					.addMulticastGroup(multicastIP, networkInterface)
+					.setMulticastReceiver(true);
+			UdpMulticastConnector multicastConnector = mcBuilder.build();
+			multicastConnector.setLoopbackMode(true);
+			try {
+				multicastConnector.start();
+			} catch (Exception e) {
+				System.err.println("Failed to start multicast connector: " + e.getMessage());
+			}
+			udpConnector.addMulticastReceiver(multicastConnector);
+
+			CoapEndpoint coapEndpoint = new CoapEndpoint.Builder()
+					.setConfiguration(config)
+					.setConnector(udpConnector)
+					.build();
+			addEndpoint(coapEndpoint);
+			System.out.println("Added endpoint with multicast support: " + physicalSocket);
+			System.out.println("Multicast group: " + multicastIP + ":" + GRP_PORT + " on " + networkInterface.getDisplayName());
 		}
 		final ProtocolScheduledExecutorService executorService = ExecutorsUtil
 				.newSingleThreadedProtocolExecutor(new DaemonThreadFactory(":CoapEndpoint")); //$NON-NLS-1$
@@ -112,6 +136,11 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 	 * Multicast address to listen to.
 	 */
 	static final InetAddress multicastIP = CoAP.MULTICAST_IPV4;
+
+	/**
+	 * Port for multicast notifications.
+	 */
+	static final int GRP_PORT = 61616;
 
 	/**
 	 * Port to listen to.

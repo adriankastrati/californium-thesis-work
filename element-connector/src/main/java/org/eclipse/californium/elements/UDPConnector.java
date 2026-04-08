@@ -61,7 +61,6 @@ import org.eclipse.californium.elements.exception.EndpointMismatchException;
 import org.eclipse.californium.elements.util.Bytes;
 import org.eclipse.californium.elements.util.ClockUtil;
 import org.eclipse.californium.elements.util.NamedThreadFactory;
-import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.elements.util.NetworkStageRunnable;
 import org.eclipse.californium.elements.util.SocketThreadFactory;
 import org.eclipse.californium.elements.util.StringUtil;
@@ -135,7 +134,9 @@ public class UDPConnector implements Connector {
 	private volatile DatagramSocket socket;
 
 	/**
-	 * Dedicated socket for sending multicast packets.
+	 * Dedicated socket for outgoing multicast traffic. Bound to an ephemeral
+	 * port on the same interface as the main socket. Required on macOS where
+	 * the main socket bound to a fixed port cannot send to multicast addresses.
 	 */
 	private volatile MulticastSocket multicastSendSocket;
 
@@ -224,6 +225,24 @@ public class UDPConnector implements Connector {
 		DatagramSocket socket = new DatagramSocket(null);
 		socket.setReuseAddress(reuseAddress);
 		socket.bind(localAddr);
+
+		if (!multicastReceivers.isEmpty()) {
+			// Create a dedicated MulticastSocket for outgoing multicast traffic,
+			// bound to an ephemeral port on the same interface. Required on macOS
+			// where the main DatagramSocket cannot send to multicast addresses.
+			NetworkInterface ni = NetworkInterface.getByInetAddress(localAddr.getAddress());
+			InetSocketAddress mcBindAddr = new InetSocketAddress(localAddr.getAddress(), 0);
+			MulticastSocket mcSend = new MulticastSocket(null);
+			mcSend.setReuseAddress(true);
+			mcSend.bind(mcBindAddr);
+			if (ni != null) {
+				mcSend.setNetworkInterface(ni);
+			}
+			multicastSendSocket = mcSend;
+			LOGGER.info("Multicast send socket created on {} interface {}",
+					StringUtil.toString((InetSocketAddress) mcSend.getLocalSocketAddress()),
+					ni != null ? ni.getDisplayName() : "default");
+		}
 		init(socket);
 	}
 
@@ -290,17 +309,6 @@ public class UDPConnector implements Connector {
 		 * called up there, it seems to work. This issue occurred in Java
 		 * 1.7.0_09, Windows 7.
 		 */
-
-		// Initialize multicast send socket
-		MulticastSocket mcSocket = new MulticastSocket();
-		NetworkInterface ni = NetworkInterfacesUtil.getMulticastInterface();
-		if (ni != null) {
-			mcSocket.setNetworkInterface(ni);
-			LOGGER.info("Multicast send socket bound to interface: {}, address: {}", ni.getName(), ni.getInetAddresses());
-		} else {
-			LOGGER.warn("No multicast interface found for multicast send socket");
-		}
-		multicastSendSocket = mcSocket;
 
 		LOGGER.info("UDPConnector listening on {}, recv buf = {}, send buf = {}, recv packet size = {}", effectiveAddr,
 				receiveBufferSize, sendBufferSize, receiverPacketSize);
@@ -516,22 +524,19 @@ public class UDPConnector implements Connector {
 			datagram.setData(raw.getBytes());
 			datagram.setSocketAddress(destinationAddress);
 
-			DatagramSocket currentSocket = socket;
+			DatagramSocket currentSocket;
+			MulticastSocket mcSocket = multicastSendSocket;
+			if (mcSocket != null && destinationAddress.getAddress().isMulticastAddress()) {
+				currentSocket = mcSocket;
+			} else {
+				currentSocket = socket;
+			}
 			if (currentSocket != null) {
 				try {
 					raw.onContextEstablished(connectionContext);
-					if (datagram.getAddress().isMulticastAddress()) {
-						MulticastSocket mcSocket = multicastSendSocket;
-						if (mcSocket != null) {
-							mcSocket.send(datagram);
-							LOGGER.debug("Sent {} bytes via multicast to {}", datagram.getLength(),
-									StringUtil.toLog(destinationAddress));
-						}
-					} else {
-						currentSocket.send(datagram);
-						LOGGER.debug("Sent {} bytes via unicast to {}", datagram.getLength(),
-								StringUtil.toLog(destinationAddress));
-					}
+					LOGGER.debug("UDPConnector ({}) sending {} bytes to {}", this, datagram.getLength(),
+							StringUtil.toLog(destinationAddress));
+					currentSocket.send(datagram);
 					raw.onSent();
 				} catch (IOException ex) {
 					LOGGER.debug("Send failed to {}: {}", datagram.getSocketAddress(), ex.getMessage());
