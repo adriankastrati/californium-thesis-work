@@ -384,7 +384,6 @@ public class ObjectSecurityLayer extends AbstractLayer {
 			byte[] kid = optionDecoder.getKid();
 			byte[] senderId = groupObservationInfo.getSenderId();
 			if (request.getOptions().hasOscore() && Arrays.equals(kid, senderId)) {
-				exchange.setProtectedRequest(request.getBytes());
 				return true;
 			}
 			return false;
@@ -442,7 +441,12 @@ public class ObjectSecurityLayer extends AbstractLayer {
 			byte[] requestOscoreOption;
 			try {
 				requestOscoreOption = request.getOptions().getOscore();
+				LOGGER.debug("DecryptionDebug: {}", request.getBytes());
+
 				request = prepareReceive(ctxDb, request, ctx);
+
+				LOGGER.debug("DecryptionDebug: {}", request.getBytes());
+
 				request.getOptions().setOscore(Bytes.EMPTY);
 				exchange.setRequest(request);
 			} catch (CoapOSException e) {
@@ -457,6 +461,7 @@ public class ObjectSecurityLayer extends AbstractLayer {
 
 			exchange.setCryptographicContextID(requestOscoreOption);
 		}
+		
 		super.receiveRequest(exchange, request);
 	}
 

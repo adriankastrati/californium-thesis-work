@@ -91,7 +91,6 @@ public abstract class Decryptor {
 		byte[] nonce = null;
 		byte[] partialIV = null;
 		byte[] aad = null;
-
 		
 		// DET_REQ
 		boolean isDetReq = false; // Will be set to true in case of a deterministic request
@@ -268,6 +267,8 @@ public abstract class Decryptor {
 			LOGGER.debug("Decrypting incoming {} using Group OSCORE. Pairwise mode", message.getClass().getSimpleName(), !groupModeMessage);
 
 			// Update external AAD value for Group OSCORE
+			// For phantom requests, use the RecipientCtx directly (not getSenderCtx())
+			// so that the sender public key in the AAD matches the server that encrypted it
 			aad = OSSerializer.updateAADForGroup(ctx, aad, message);
 
 			LOGGER.debug("Decrypting incoming {} using pairwise mode: ",message.getClass().getSimpleName(), !groupModeMessage);
@@ -357,7 +358,9 @@ public abstract class Decryptor {
 			boolean signatureCorrect = checkSignature(enc, sign);
 			LOGGER.debug("Signature verification succeeded: {}", signatureCorrect);
 		}
-
+		// For phantom requests, use the pairwise sender key since the
+        // server encrypted the message with its own sender key
+        
 		try {
 			// TODO: Get and set Recipient ID (KID) here too?
 			enc.addAttribute(HeaderKeys.Algorithm, decryptionAlg.AsCBOR(), Attribute.DO_NOT_SEND);

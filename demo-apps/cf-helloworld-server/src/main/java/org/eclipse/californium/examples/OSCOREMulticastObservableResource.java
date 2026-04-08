@@ -95,6 +95,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 				setUpGroupObservation(exchange);
 			}
 		} else {
+			// set new last_notif
 			exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
 		}
 	}
@@ -112,7 +113,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 		response.setPayload(obsInfo.toCbor());
 		response.setDestinationContext(clientExchange.advanced().getRequest().getSourceContext());
 		response.setToken(clientExchange.advanced().getRequest().getToken());
-
+		LOGGER.debug("inforamtive response payload{}", obsInfo.toString());
 		LOGGER.debug("Sending informative response (5.03) to client {} with token {}",
 				clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(),
 				clientExchange.advanced().getRequest().getToken());
@@ -188,10 +189,9 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 			groupObservationsInfo.startGroupObservation(uriPath, observationInfo);
 			groupObservationsInfo.setGroupObservationSetupInProgress(uriPath, false);
 
-			// Store phantom request as transport-independent bytes (Section 4.2.2)
-			groupObservationsInfo.getGroupObservationInfo(uriPath).setPhReq(
-					ObservationInfo.extractTransportIndependent(exchange.advanced().getProtectedRequest()));
-
+			// Store OSCORE protected phantom request
+			groupObservationsInfo.getGroupObservationInfo(uriPath).setPhReq((exchange.advanced().getProtectedRequest()));
+			
 			// Respond to establish the observe relation (response will be suppressed)
 			exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
 			LOGGER.debug("Phantom request established for {} with content: {}", uriPath, this.content);

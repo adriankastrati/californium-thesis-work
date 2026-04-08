@@ -13,8 +13,10 @@ import org.eclipse.californium.core.CoapHandler;
 import org.eclipse.californium.core.CoapResponse;
 import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.coap.CoAP.Code;
+import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
+import org.eclipse.californium.core.coap.Message;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
@@ -22,6 +24,7 @@ import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.serialization.DataParser;
 import org.eclipse.californium.core.network.serialization.DataParserTest.CustomUdpDataParser;
+import org.eclipse.californium.core.network.serialization.UdpDataParser;
 import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.cose.AlgorithmID;
 import org.eclipse.californium.elements.AddressEndpointContext;
@@ -30,6 +33,7 @@ import org.eclipse.californium.elements.UdpMulticastConnector;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.UdpConfig;
 import org.eclipse.californium.elements.util.Bytes;
+import org.eclipse.californium.elements.util.DatagramReader;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.eclipse.californium.oscore.CoapOSException;
@@ -38,6 +42,7 @@ import org.eclipse.californium.oscore.OSCoreCoapStackFactory;
 import org.eclipse.californium.oscore.OSCoreCtx;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.OscoreOptionDecoder;
+import org.eclipse.californium.oscore.RequestDecryptor;
 import org.eclipse.californium.oscore.group.GroupCtx;
 import org.eclipse.californium.oscore.group.GroupRecipientCtx;
 import org.eclipse.californium.oscore.group.MultiKey;
@@ -134,7 +139,40 @@ public class OSCOREMulticastObserveClient {
         }
       }
     }
+    /**
+     * Decrypts and verifies the phantom registration request using RequestDecryptor,
+     * similar to how ObjectSecurityLayer.receiveRequest handles incoming OSCORE requests.
+     * A successful return means the request is verified; null means verification failed.
+     */
+    private Request decrypt(Request request) {
+		OSCoreCtx ctx = null;
+		try {
+			OscoreOptionDecoder optionDecoder = new OscoreOptionDecoder(request.getOptions().getOscore());
+			byte[] rid = optionDecoder.getKid();
+			byte[] idContext = optionDecoder.getIdContext();
+			ctx = db.getContext(rid, idContext);
+		} catch (CoapOSException e) {
+			LOGGER.error("Failed to retrieve OSCORE context for phantom request: {}", e.getMessage());
+			return null;
+		}
 
+		if (ctx == null) {
+			LOGGER.error("No OSCORE context found for phantom request");
+			return null;
+		}
+
+		try {
+			// Mark as phantom request so AAD computation uses empty OSCORE option,
+			// matching the server-side behavior in ObjectSecurityLayer.receiveRequest.
+			request.setIsPhantomRequest(true);
+			request = RequestDecryptor.decrypt(db, request, ctx);
+			request.getOptions().setOscore(Bytes.EMPTY);
+			return request;
+		} catch (CoapOSException e) {
+			LOGGER.error("Phantom request decryption/verification failed: {}", e.getMessage());
+			return null;
+		}
+    }
     @Override
     public void onLoad(CoapResponse response) {
       LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
@@ -149,48 +187,62 @@ public class OSCOREMulticastObserveClient {
         int groupPort = groupSock.getPort();
         Token multicastToken = info.getToken();
         
-        
-        // Parse the transport-independent ph_req bytes (Section 4.2.2: code + options + payload)
-        try {
-        	byte[] phantomRequestBytes = info.getPhReq();
-            // First byte is code, remaining bytes are serialized options + optional payload
-            int code = phantomRequestBytes[0] & 0xFF;
-            byte[] optionsAndPayload = new byte[phantomRequestBytes.length - 1];
-            System.arraycopy(phantomRequestBytes, 1, optionsAndPayload, 0, optionsAndPayload.length);
+       
+        byte[] phantomRequestBytes = info.getPhReq();
 
-            // Parse options from the transport-independent bytes
-            Request parsedRequest = new Request(Code.valueOf(code));
-            DataParser parser = new CustomUdpDataParser(true);
-            parser.parseOptionsAndPayload(
-                new org.eclipse.californium.elements.util.DatagramReader(optionsAndPayload),
-                parsedRequest);
+		UdpDataParser parser = new UdpDataParser();
+		Message mess = parser.parseMessage(phantomRequestBytes);
 
-			OscoreOptionDecoder optionDecoder = new OscoreOptionDecoder(parsedRequest.getOptions().getOscore());
-			
-			
-			byte[] idContext = optionDecoder.getIdContext();
-			byte[] partialIV = optionDecoder.getPartialIV();
-			byte[] kid = optionDecoder.getKid();
-
-			LOGGER.info("idContext: {}", idContext);
-			LOGGER.info("kid: {}", kid);
-			LOGGER.info("Partial IV: {}", partialIV);
-			try {
-			    OSCoreCtx ctx = db.getContext(server_id, group_identifier);
-			    if (ctx instanceof GroupRecipientCtx) {
-			        GroupCtx commonCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
-			        commonCtx.setPhantomRequestValues(kid, partialIV, idContext);
-			        LOGGER.info("Set phantom request values on GroupCtx");
-			    }
-			} catch (Exception e) {
-			    LOGGER.error("Failed to set phantom request values", e);
-			}
-
-		} catch (CoapOSException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		Request phantomRequest = null;
+		if (mess instanceof Request) {
+			phantomRequest = (Request) mess;
 		}
-        
+
+		if (phantomRequest == null) {
+			LOGGER.error("Failed to parse phantom request from informative response");
+			return;
+		}
+
+		// Store the OSCORE option from the server's phantom request.
+		// This contains the server's kid, piv, and kid_context needed
+		// for decrypting multicast notifications (RFC Section 9.3.1/9.3.2).
+		byte[] phantomOscoreOption = phantomRequest.getOptions().getOscore();
+
+		// Decrypt and verify the phantom registration request.
+		// If RequestDecryptor.decrypt succeeds, the request is verified.
+		// If it throws, verification has failed.
+		Request decryptedPhantomRequest = decrypt(phantomRequest);
+		if (decryptedPhantomRequest == null) {
+			LOGGER.error("Phantom request verification failed: decryption or signature check failed");
+			return;
+		}
+		LOGGER.info("Phantom request verified successfully");
+
+		// Store phantom request parameters (kid, piv, kid_context) in GroupCtx
+		// so Decryptor uses them in AAD when decrypting multicast notifications.
+		try {
+			OscoreOptionDecoder phantomOptionDecoder = new OscoreOptionDecoder(phantomOscoreOption);
+			byte[] phantomKid = phantomOptionDecoder.getKid();
+			byte[] phantomPiv = phantomOptionDecoder.getPartialIV();
+			byte[] phantomKidContext = phantomOptionDecoder.getIdContext();
+
+			OSCoreCtx oscoreCtx = db.getContext(phantomKid, phantomKidContext);
+			if (oscoreCtx instanceof GroupRecipientCtx) {
+				GroupCtx groupCtx = ((GroupRecipientCtx) oscoreCtx).getCommonCtx();
+				groupCtx.setPhantomRequestValues(phantomKid, phantomPiv, phantomKidContext);
+				LOGGER.info("Stored phantom request values - kid: {}, piv: {}, kidContext: {}",
+					StringUtil.byteArray2Hex(phantomKid),
+					StringUtil.byteArray2Hex(phantomPiv),
+					StringUtil.byteArray2Hex(phantomKidContext));
+			} else {
+				LOGGER.error("Could not find GroupRecipientCtx for phantom request kid");
+				return;
+			}
+		} catch (CoapOSException e) {
+			LOGGER.error("Failed to parse phantom request OSCORE option: {}", e.getMessage());
+			return;
+		}
+
 		LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
         LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
         LOGGER.info("Token: {}", multicastToken.getAsString());
@@ -201,10 +253,10 @@ public class OSCOREMulticastObserveClient {
           int notifCode = lastNotifBytes[0] & 0xFF;
           byte[] notifOptionsAndPayload = new byte[lastNotifBytes.length - 1];
           System.arraycopy(lastNotifBytes, 1, notifOptionsAndPayload, 0, notifOptionsAndPayload.length);
-          Response lastNotif = new Response(org.eclipse.californium.core.coap.CoAP.ResponseCode.valueOf(notifCode));
+          Response lastNotif = new Response(ResponseCode.valueOf(notifCode));
           DataParser notifParser = new CustomUdpDataParser(true);
           notifParser.parseOptionsAndPayload(
-              new org.eclipse.californium.elements.util.DatagramReader(notifOptionsAndPayload),
+              new DatagramReader(notifOptionsAndPayload),
               lastNotif);
           LOGGER.info("last_notif present - code: {}, payload: {}",
               lastNotif.getCode(), lastNotif.getPayloadString());
@@ -213,16 +265,18 @@ public class OSCOREMulticastObserveClient {
         }
         if (!receiverReady) {
           try {
-            // Build receiver stack (join group + bind port) - MUST come first to create multicastClient
+  
             LOGGER.info("Setting up multicast receiver...");
             setupMulticastReceiverOnce(groupAddr, groupPort, Configuration.createStandardWithoutFile(), multicastToken);
             LOGGER.info("Multicast receiver activated.");
             
-            // Now create phantom request and register observe relation
-            Request phantomRequest = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
+            // Create phantom request to register observe relation for multicast token matching.
+            // Uses Bytes.EMPTY for OSCORE option; the phantom values (kid/piv/kid_context)
+            // are already stored in GroupCtx for AAD computation during notification decryption.
+            Request phantomRequest1 = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
             LOGGER.info("Created PhantomRequest with token: {}", multicastToken);
             
-            multicastClient.observe(phantomRequest, this);
+            multicastClient.observe(phantomRequest1, this);
             LOGGER.info("Registered phantom observe relation.");
 
             receiverReady = true;
@@ -237,7 +291,7 @@ public class OSCOREMulticastObserveClient {
       }
 
       // Section 5.4: Detect cancellation — 5.03 with no payload and no Observe option
-      if (response.getCode() == org.eclipse.californium.core.coap.CoAP.ResponseCode.SERVICE_UNAVAILABLE
+      if (response.getCode() == ResponseCode.SERVICE_UNAVAILABLE
           && !response.getOptions().hasObserve()
           && (response.getPayload() == null || response.getPayload().length == 0)) {
         LOGGER.info("Received group observation cancellation (5.03, no payload, no Observe)");
@@ -259,6 +313,7 @@ public class OSCOREMulticastObserveClient {
       }
     }
 
+    
     @Override
     public void onError() {
       LOGGER.error("Error receiving multicast notification");

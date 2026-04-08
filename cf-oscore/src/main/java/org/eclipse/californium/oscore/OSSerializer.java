@@ -293,22 +293,12 @@ public class OSSerializer {
 
 		if (ctx instanceof GroupRecipientCtx) {
 			GroupRecipientCtx recipientCtx = (GroupRecipientCtx) ctx;
-
-			// For phantom requests, use the sender ctx since the server encrypted the message
-			if (message instanceof Request && ((Request) message).getIsPhantomRequest()) {
-				GroupSenderCtx senderCtx = recipientCtx.getCommonCtx().getSenderCtx();
-				algSign = senderCtx.getAlgSign().AsCBOR();
-				algGroupEnc = senderCtx.getAlgGroupEnc().AsCBOR();
-				algKeyAgreement = senderCtx.getAlgKeyAgreement().AsCBOR();
-				senderPublicKey = senderCtx.getPublicKeyRaw();
-				gmPublicKey = senderCtx.getCommonCtx().getGmPublicKey();
-			} else {
-				algSign = recipientCtx.getAlgSign().AsCBOR();
-				algGroupEnc = recipientCtx.getAlgGroupEnc().AsCBOR();
-				algKeyAgreement = recipientCtx.getAlgKeyAgreement().AsCBOR();
-				senderPublicKey = recipientCtx.getPublicKeyRaw();
-				gmPublicKey = recipientCtx.getCommonCtx().getGmPublicKey();
-			}
+			algSign = recipientCtx.getAlgSign().AsCBOR();
+			algGroupEnc = recipientCtx.getAlgGroupEnc().AsCBOR();
+			algKeyAgreement = recipientCtx.getAlgKeyAgreement().AsCBOR();
+			senderPublicKey = recipientCtx.getPublicKeyRaw();
+			gmPublicKey = recipientCtx.getCommonCtx().getGmPublicKey();
+			
 		} else if (ctx instanceof GroupSenderCtx) { // DET_REQ (else-if extended here)
 			GroupSenderCtx senderCtx = (GroupSenderCtx) ctx;
 			algSign = senderCtx.getAlgSign().AsCBOR();
@@ -347,7 +337,7 @@ public class OSSerializer {
 		// Add update algorithms array to external AAD (used for encryption)
 		groupAadEnc.set(1, algorithms);
 
-		// Add request_kid_context
+		// Add request_kid_context //FIXME
 		if (ctx.getIdContext() == null || ctx.getIdContext().length == 0) {
 			groupAadEnc.Add(CBORObject.FromObject(Bytes.EMPTY));
 		} else {
@@ -358,19 +348,26 @@ public class OSSerializer {
 		// Adding OSCORE option
 
 		byte[] oscoreOption = message.getOptions().getOscore();
+
+		// Check if this is an outgoing message //TODO: Check with option null?
 		boolean outgoing = message.getSourceContext() == null;
 
-		// Phantom requests use empty OSCORE option for AAD computation
-		if (message instanceof Request && ((Request) message).getIsPhantomRequest()) {
-			oscoreOption = new byte[0];
+		// For phantom requests, use empty OSCORE option in AAD to match
+		// encryption side (phantom is created with empty OSCORE option and
+		// sourceContext set, so encryption also uses empty option in AAD)
+		boolean isPhantom = message.getIsPhantomRequest();
+		if (isPhantom) {
+			oscoreOption = Bytes.EMPTY;
 		} else if (outgoing) {
+
 			if (message instanceof Request) {
 				boolean groupModeRequest = OptionEncoder.getPairwiseMode(oscoreOption) == false;
 				oscoreOption = Encryptor.encodeOSCoreRequest(ctx, groupModeRequest);
 			} else {
 				boolean newPartialIV = ctx.getResponsesIncludePartialIV() ||
-						message.getOptions().hasObserve() ||
-						message.getOptions().hasRequestHash();
+									   message.getOptions().hasObserve() ||
+									   message.getOptions().hasRequestHash(); // DET_REQ (this method should take newPartialIV as parameter)
+				
 				oscoreOption = Encryptor.encodeOSCoreResponse(ctx, newPartialIV);
 			}
 		}
