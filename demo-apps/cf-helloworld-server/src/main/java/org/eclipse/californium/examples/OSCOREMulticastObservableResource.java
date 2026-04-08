@@ -41,6 +41,7 @@ import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
+import org.eclipse.californium.core.coap.OptionSet;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
@@ -51,7 +52,13 @@ import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.core.server.MessageDeliverer;
 import org.eclipse.californium.elements.util.Bytes;
+import org.eclipse.californium.oscore.OSCoreCtx;
+import org.eclipse.californium.oscore.OSCoreCtxDB;
 import org.eclipse.californium.oscore.OSCoreResource;
+import org.eclipse.californium.oscore.OSException;
+import org.eclipse.californium.oscore.ObjectSecurityLayer;
+import org.eclipse.californium.oscore.OscoreOptionDecoder;
+import org.eclipse.californium.oscore.CoapOSException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,10 +73,12 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 
 	private final boolean isGroupObservable;
 	private final MessageDeliverer serverMessageDeliverer;
+	private final OSCoreCtxDB ctxDb;
 
-	public OSCOREMulticastObservableResource(String uri, boolean groupObservable, MessageDeliverer serverMessageDeliverer) {
+	public OSCOREMulticastObservableResource(String uri, boolean groupObservable, MessageDeliverer serverMessageDeliverer, OSCoreCtxDB ctxDb) {
 		super(uri, true);
 		this.serverMessageDeliverer = serverMessageDeliverer;
+		this.ctxDb = ctxDb;
 		getAttributes().setTitle("Multicast Observable Resource");
 		setObservable(true);
 		setObserveType(null);
@@ -191,16 +200,37 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 
 			// Store OSCORE protected phantom request
 			groupObservationsInfo.getGroupObservationInfo(uriPath).setPhReq((exchange.advanced().getProtectedRequest()));
-			
+
+			// Store the phantom request's OSCORE option parameters for encrypting last_notif
+			byte[] reqOscoreOption = exchange.advanced().getCryptographicContextID();
+			observationInfo.setRequestOscoreOption(reqOscoreOption);
+			try {
+				OscoreOptionDecoder decoder = new OscoreOptionDecoder(reqOscoreOption);
+				observationInfo.setRequestSequenceNumber(decoder.getSequenceNumber());
+			} catch (CoapOSException e) {
+				LOGGER.error("Failed to parse phantom OSCORE option: {}", e.getMessage());
+			}
+
 			// Respond to establish the observe relation (response will be suppressed)
 			exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
 			LOGGER.debug("Phantom request established for {} with content: {}", uriPath, this.content);
 
-			// Section 4.1 Step 6: Store INIT_NOTIF as last_notif for informative responses
+			// Section 4.1 Step 6 + Section 9.2: Build INIT_NOTIF and encrypt
+			// with Group OSCORE before storing as last_notif.
+			// INIT_NOTIF is formatted as a multicast notification (Section 4.3):
+			// includes Observe option and current resource representation.
 			Response initNotif = new Response(ResponseCode.CONTENT);
 			initNotif.setPayload(Integer.toString(this.content));
 			initNotif.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
-			observationInfo.setLastNotif(initNotif);
+			initNotif.getOptions().setObserve(1);
+			byte[] encryptedLastNotif = encryptNotificationForLastNotif(initNotif, observationInfo);
+			if (encryptedLastNotif != null) {
+				observationInfo.setLastNotifBytes(encryptedLastNotif);
+				LOGGER.debug("Stored OSCORE-protected INIT_NOTIF as last_notif ({} bytes)", encryptedLastNotif.length);
+			} else {
+				LOGGER.warn("Failed to encrypt INIT_NOTIF, storing plaintext last_notif");
+				observationInfo.setLastNotif(initNotif);
+			}
 
 			sendInformativeResponsesToClients(uriPath);
 		} else {
@@ -218,9 +248,15 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 			notification.setPayload(Integer.toString(this.content));
 			notification.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
 
+			// Encrypt last_notif with Group OSCORE before storing (Section 9.2)
 			ObservationInfo observationInfo = groupObservationsInfo.getGroupObservationInfo(uriPath);
 			if (observationInfo != null) {
-				observationInfo.setLastNotif(notification);
+				byte[] encryptedLastNotif = encryptNotificationForLastNotif(notification, observationInfo);
+				if (encryptedLastNotif != null) {
+					observationInfo.setLastNotifBytes(encryptedLastNotif);
+				} else {
+					observationInfo.setLastNotif(notification);
+				}
 			}
 
 			exchange.respond(notification);
@@ -275,6 +311,44 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 		CoapEndpoint endpoint = (CoapEndpoint) exchange.advanced().getEndpoint();
 		endpoint.sendRequest(phantomRequest);
 	}
+	/**
+	 * Encrypts a plaintext notification response using Group OSCORE and returns
+	 * its transport-independent serialization for use as {@code last_notif}.
+	 * Per RFC Section 9.2: last_notif must be protected with Group OSCORE.
+	 *
+	 * @param response the plaintext notification to encrypt
+	 * @param obsInfo the observation info containing the phantom request's OSCORE parameters
+	 * @return the transport-independent bytes of the protected response, or {@code null} on failure
+	 */
+	private byte[] encryptNotificationForLastNotif(Response response, ObservationInfo obsInfo) {
+		try {
+			byte[] requestOption = obsInfo.getRequestOscoreOption();
+			int requestSeqNr = obsInfo.getRequestSequenceNumber();
+			Token token = obsInfo.getToken();
+
+			OSCoreCtx ctx = ctxDb.getContextByToken(token);
+			if (ctx == null) {
+				LOGGER.error("No OSCORE context found for token {} when encrypting last_notif", token);
+				return null;
+			}
+
+			// Clone the response so the original is not modified by encryption
+			Response toEncrypt = new Response(response.getCode());
+			toEncrypt.setPayload(response.getPayload());
+			toEncrypt.setOptions(new OptionSet(response.getOptions()));
+			toEncrypt.setToken(token);
+
+			// Encrypt using Group OSCORE with new partial IV (observe response)
+			Response encrypted = ObjectSecurityLayer.prepareSend(
+					ctxDb, toEncrypt, ctx, true, false, requestSeqNr, requestOption);
+
+			return ObservationInfo.serializeTransportIndependent(encrypted);
+		} catch (OSException e) {
+			LOGGER.error("Failed to encrypt last_notif: {}", e.getMessage());
+			return null;
+		}
+	}
+
 	class UpdateTask extends TimerTask {
 		private int notificationCount = 0;
 

@@ -213,7 +213,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 		resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
 		resource.add(new ObservableResource(server));
-		resource.add(new OSCOREMulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer()));
+		resource.add(new OSCOREMulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer(), db));
 		server.start();
 
 		System.out.println("==================");

@@ -43,6 +43,7 @@ import org.eclipse.californium.oscore.OSCoreCtx;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.OscoreOptionDecoder;
 import org.eclipse.californium.oscore.RequestDecryptor;
+import org.eclipse.californium.oscore.ResponseDecryptor;
 import org.eclipse.californium.oscore.group.GroupCtx;
 import org.eclipse.californium.oscore.group.GroupRecipientCtx;
 import org.eclipse.californium.oscore.group.MultiKey;
@@ -220,11 +221,13 @@ public class OSCOREMulticastObserveClient {
 
 		// Store phantom request parameters (kid, piv, kid_context) in GroupCtx
 		// so Decryptor uses them in AAD when decrypting multicast notifications.
+		int phantomSeqNr = 0;
 		try {
 			OscoreOptionDecoder phantomOptionDecoder = new OscoreOptionDecoder(phantomOscoreOption);
 			byte[] phantomKid = phantomOptionDecoder.getKid();
 			byte[] phantomPiv = phantomOptionDecoder.getPartialIV();
 			byte[] phantomKidContext = phantomOptionDecoder.getIdContext();
+			phantomSeqNr = phantomOptionDecoder.getSequenceNumber();
 
 			OSCoreCtx oscoreCtx = db.getContext(phantomKid, phantomKidContext);
 			if (oscoreCtx instanceof GroupRecipientCtx) {
@@ -247,19 +250,40 @@ public class OSCOREMulticastObserveClient {
         LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
         LOGGER.info("Token: {}", multicastToken.getAsString());
 
-        // Section 5.2 Steps 5-6: Process last_notif if present
+        // Section 5.2 Steps 5-6 + Section 9.3: Process and decrypt last_notif
         byte[] lastNotifBytes = info.getLastNotifBytes();
         if (lastNotifBytes != null && lastNotifBytes.length > 0) {
+          // Reconstruct a Response from the OSCORE-protected transport-independent bytes
           int notifCode = lastNotifBytes[0] & 0xFF;
           byte[] notifOptionsAndPayload = new byte[lastNotifBytes.length - 1];
           System.arraycopy(lastNotifBytes, 1, notifOptionsAndPayload, 0, notifOptionsAndPayload.length);
           Response lastNotif = new Response(ResponseCode.valueOf(notifCode));
+          lastNotif.setToken(multicastToken);
           DataParser notifParser = new CustomUdpDataParser(true);
           notifParser.parseOptionsAndPayload(
               new DatagramReader(notifOptionsAndPayload),
               lastNotif);
-          LOGGER.info("last_notif present - code: {}, payload: {}",
-              lastNotif.getCode(), lastNotif.getPayloadString());
+
+          // Mark as incoming so updateAADForGroup uses the actual OSCORE option
+          // from the wire bytes rather than re-encoding with the wrong context.
+          lastNotif.setSourceContext(new AddressEndpointContext(groupSock));
+
+          // Decrypt with Group OSCORE using phantom request context.
+          // Map the multicast token to the OSCORE context so ResponseDecryptor can find it.
+          try {
+            OscoreOptionDecoder phantomDec = new OscoreOptionDecoder(phantomOscoreOption);
+            byte[] senderKid = phantomDec.getKid();
+            byte[] kidContext = phantomDec.getIdContext();
+            OSCoreCtx recipientCtx = db.getContext(senderKid, kidContext);
+            if (recipientCtx != null) {
+              db.addContext(multicastToken, recipientCtx);
+            }
+            Response decryptedNotif = ResponseDecryptor.decrypt(db, lastNotif, phantomSeqNr);
+            LOGGER.info("last_notif decrypted - code: {}, payload: {}",
+                decryptedNotif.getCode(), decryptedNotif.getPayloadString());
+          } catch (OSException e) {
+            LOGGER.error("Failed to decrypt last_notif: {}", e.getMessage());
+          }
         } else {
           LOGGER.info("No last_notif in informative response");
         }

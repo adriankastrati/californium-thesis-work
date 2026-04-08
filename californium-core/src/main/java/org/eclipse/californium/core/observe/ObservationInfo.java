@@ -36,6 +36,13 @@ public class ObservationInfo {
     // CBOR key 2 — OPTIONAL: byte serialization of the last multicast notification
     private byte[] lastNotifBytes;
 
+    // OSCORE request option bytes from the phantom request, needed for
+    // encrypting last_notif at the resource layer.
+    private byte[] requestOscoreOption;
+
+    // Sequence number (Partial IV) from the phantom request's OSCORE option.
+    private int requestSequenceNumber;
+
     // CBOR key 3 — OPTIONAL: seconds until next notification
     private Long nextNotBefore;
 
@@ -73,9 +80,25 @@ public class ObservationInfo {
         this.phReq = phReq;
     }
 
+    public byte[] getRequestOscoreOption() {
+        return requestOscoreOption;
+    }
+
+    public void setRequestOscoreOption(byte[] requestOscoreOption) {
+        this.requestOscoreOption = requestOscoreOption;
+    }
+
+    public int getRequestSequenceNumber() {
+        return requestSequenceNumber;
+    }
+
+    public void setRequestSequenceNumber(int requestSequenceNumber) {
+        this.requestSequenceNumber = requestSequenceNumber;
+    }
+
     /**
      * Gets the transport-independent serialization of the last multicast notification.
-     * 
+     *
      * @return the serialized bytes, or {@code null}
      */
     public byte[] getLastNotifBytes() {
