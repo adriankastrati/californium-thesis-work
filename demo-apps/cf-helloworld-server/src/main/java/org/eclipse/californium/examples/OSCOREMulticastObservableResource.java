@@ -117,13 +117,25 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 	private void sendInformativeResponse(CoapExchange clientExchange, ObservationInfo obsInfo) {
 		clientExchange.accept();
 
+		// Section 4.2: Informative response MUST NOT have link-local source or destination addresses
+		InetSocketAddress clientAddress = clientExchange.advanced().getRequest().getSourceContext().getPeerAddress();
+		if (clientAddress.getAddress().isLinkLocalAddress()) {
+			LOGGER.warn("Refusing to send informative response: client address {} is link-local (Section 4.2)", clientAddress);
+			return;
+		}
+		InetSocketAddress localAddress = clientExchange.advanced().getEndpoint().getAddress();
+		if (localAddress.getAddress() != null && localAddress.getAddress().isLinkLocalAddress()) {
+			LOGGER.warn("Refusing to send informative response: server address {} is link-local (Section 4.2)", localAddress);
+			return;
+		}
+
 		Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
 		response.setType(Type.CON);
 		response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
 		response.setPayload(obsInfo.toCbor());
 		response.setDestinationContext(clientExchange.advanced().getRequest().getSourceContext());
 		response.setToken(clientExchange.advanced().getRequest().getToken());
-		LOGGER.debug("inforamtive response payload{}", obsInfo.toString());
+		LOGGER.debug("Informative response payload: {}", obsInfo.toString());
 		LOGGER.debug("Sending informative response (5.03) to client {} with token {}",
 				clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(),
 				clientExchange.advanced().getRequest().getToken());

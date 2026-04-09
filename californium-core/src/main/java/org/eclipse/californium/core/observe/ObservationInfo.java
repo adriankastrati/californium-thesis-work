@@ -57,7 +57,32 @@ public class ObservationInfo {
     }
 
     public ObservationInfo(InetSocketAddress serverAddress, InetSocketAddress multicastAddress, Token token) {
+        // Section 4.2: tp_info MUST NOT provide link-local or site-local addresses
+        //validateNotLinkLocalOrSiteLocal(serverAddress, "server");
+        //validateNotLinkLocalOrSiteLocal(multicastAddress, "multicast");
         this.tpInfo = new TpInfo(serverAddress, multicastAddress, token);
+    }
+
+    /**
+     * Validates that the given address is not link-local or site-local.
+     * Per Section 4.2: informative response MUST NOT provide link-local or
+     * site-local addresses in tp_info.
+     */
+    private static void validateNotLinkLocalOrSiteLocal(InetSocketAddress address, String label) {
+        if (address == null || address.getAddress() == null) {
+            return;
+        }
+        InetAddress addr = address.getAddress();
+        if (addr.isLinkLocalAddress()) {
+            throw new IllegalArgumentException(
+                    "tp_info " + label + " address " + addr.getHostAddress()
+                    + " is link-local (RFC Section 4.2)");
+        }
+        if (addr.isSiteLocalAddress()) {
+            throw new IllegalArgumentException(
+                    "tp_info " + label + " address " + addr.getHostAddress()
+                    + " is site-local (RFC Section 4.2)");
+        }
     }
 
     public Token getToken() {
@@ -458,7 +483,17 @@ public class ObservationInfo {
                 throw new IllegalArgumentException("CRI host must be 4 (IPv4) or 16 (IPv6) bytes, got " + hostBytes.length);
             }
             try {
-                cri.setHost(InetAddress.getByAddress(hostBytes));
+                InetAddress hostAddr = InetAddress.getByAddress(hostBytes);
+                // Section 4.2/5.2: tp_info MUST NOT contain link-local or site-local addresses
+                /*if (hostAddr.isLinkLocalAddress()) {
+                    throw new IllegalArgumentException(
+                            "CRI host " + hostAddr.getHostAddress() + " is link-local (RFC Section 4.2)");
+                }
+                if (hostAddr.isSiteLocalAddress()) {
+                    throw new IllegalArgumentException(
+                            "CRI host " + hostAddr.getHostAddress() + " is site-local (RFC Section 4.2)");
+                }*/
+                cri.setHost(hostAddr);
             } catch (UnknownHostException e) {
                 throw new IllegalArgumentException("Invalid CRI host", e);
             }

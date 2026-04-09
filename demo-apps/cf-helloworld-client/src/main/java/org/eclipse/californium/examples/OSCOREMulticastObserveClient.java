@@ -381,16 +381,25 @@ public class OSCOREMulticastObserveClient {
 
 }
   private static Request createRequest(Code code, String resourceUri) {
-      
+
       // resourceUri should be like "/oscore/observe2"
       String serverUri = resourceUri;
       System.out.println("Connecting to: " + serverUri);
-      
+
       Request r = new Request(code);
       r.setConfirmable(true);
       r.setURI(serverUri);
       r.getOptions().setOscore(Bytes.EMPTY);
       r.setObserve();
+
+      // Section 5.1: Observation request MUST NOT have link-local source or destination addresses
+      InetAddress destAddr = r.getDestinationContext() != null
+              ? r.getDestinationContext().getPeerAddress().getAddress() : null;
+      if (destAddr != null && destAddr.isLinkLocalAddress()) {
+          throw new IllegalArgumentException(
+                  "Observation request destination " + destAddr.getHostAddress()
+                  + " is link-local (RFC Section 5.1)");
+      }
 
       return r;
   }
