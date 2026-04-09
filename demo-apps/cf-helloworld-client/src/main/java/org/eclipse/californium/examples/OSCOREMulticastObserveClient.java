@@ -191,6 +191,13 @@ public class OSCOREMulticastObserveClient {
        
         byte[] phantomRequestBytes = info.getPhReq();
 
+		// RFC Section 9.3.1: ph_req MUST be present when using Group OSCORE,
+		// otherwise the informative response is considered malformed.
+		if (phantomRequestBytes == null || phantomRequestBytes.length == 0) {
+			LOGGER.error("Malformed informative response: missing required 'ph_req' parameter");
+			return;
+		}
+
 		UdpDataParser parser = new UdpDataParser();
 		Message mess = parser.parseMessage(phantomRequestBytes);
 

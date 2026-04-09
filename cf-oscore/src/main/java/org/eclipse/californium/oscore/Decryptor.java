@@ -353,8 +353,9 @@ public abstract class Decryptor {
 
 		enc.setExternal(aad);
 
-		// Check signature before decrypting (skip for phantom requests — self-generated)
-		if (groupModeMessage && !message.getIsPhantomRequest()) {
+		// Verify countersignature for all group mode messages, including phantom requests.
+		// RFC Section 9.3.1 requires the client to decrypt AND verify the phantom request.
+		if (groupModeMessage) {
 			boolean signatureCorrect = checkSignature(enc, sign);
 			LOGGER.debug("Signature verification succeeded: {}", signatureCorrect);
 		}
