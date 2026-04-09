@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.californium.core.CoapExchange;
 import org.eclipse.californium.core.coap.CoAP;
@@ -53,10 +54,19 @@ public class GroupObservationsInfo {
 	 */
 	private Map<String, List<CoapExchange>> pendingClients;
 
+	/**
+	 * Number of clients observing a resource
+	 */
+	private Map<String, AtomicInteger> observerCounters;
+	
 	private static final int GRP_PORT = 61616;
 
 	private volatile InetSocketAddress multicastAddress = new InetSocketAddress(CoAP.MULTICAST_IPV4, GRP_PORT);
 
+	public void incrementObserverCount(String uri) {
+		observerCounters.get(uri).incrementAndGet();
+	}
+	
 	public InetSocketAddress getMulticastAddress() {
 		return multicastAddress;
 	}
@@ -77,6 +87,8 @@ public class GroupObservationsInfo {
 		this.pendingMulticastNotificationTokens = new ConcurrentHashMap<>();
 		this.ongoingGroupObservations = new ConcurrentHashMap<>();
 		this.pendingClients = new ConcurrentHashMap<>();
+		this.observerCounters = new ConcurrentHashMap<>();
+
 		this.tokenGenerator = new RandomTokenGenerator(Configuration.createStandardWithoutFile());
 	}
 
@@ -148,6 +160,8 @@ public class GroupObservationsInfo {
 		}
 		pendingMulticastNotificationTokens.remove(uriPath);
 		ongoingGroupObservations.put(uriPath, info);
+		observerCounters.computeIfAbsent(uriPath, _ -> new AtomicInteger(0));
+				
 	}
 
 	public ObservationInfo getGroupObservationInfo(String uriPath) {
@@ -164,7 +178,7 @@ public class GroupObservationsInfo {
 		if (uriPath == null || exchange == null) {
 			return;
 		}
-		pendingClients.computeIfAbsent(uriPath, k -> new ArrayList<>()).add(exchange);
+		pendingClients.computeIfAbsent(uriPath, _ -> new ArrayList<>()).add(exchange);
 	}
 
 	/**

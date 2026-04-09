@@ -172,7 +172,7 @@ public abstract class Decryptor {
 						
 				// DET_REQ
 				// Skip the replay check if this is a deterministic request
-				if (!isDetReq) {
+				if (!isDetReq && !message.getIsPhantomRequest()) {
 					//Note that the code below can throw an OSException when replays are detected
 					ctx.checkIncomingSeq(seq);
 				}

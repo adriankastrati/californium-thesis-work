@@ -281,6 +281,7 @@ public class OSCOREMulticastObserveClient {
             Response decryptedNotif = ResponseDecryptor.decrypt(db, lastNotif, phantomSeqNr);
             LOGGER.info("last_notif decrypted - code: {}, payload: {}",
                 decryptedNotif.getCode(), decryptedNotif.getPayloadString());
+            LOGGER.info("last_notif: \n {}", Utils.prettyPrint(decryptedNotif));
           } catch (OSException e) {
             LOGGER.error("Failed to decrypt last_notif: {}", e.getMessage());
           }

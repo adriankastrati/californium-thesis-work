@@ -98,6 +98,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 			} else if (groupObservationsInfo.isOngoingGroupObservation(uriPath)) {
 				// Group observation already active, send informative response
 				ObservationInfo obsInfo = groupObservationsInfo.getGroupObservationInfo(uriPath);
+				groupObservationsInfo.incrementObserverCount(uriPath);
 				sendInformativeResponse(exchange, obsInfo);
 			} else if (shouldGroupObservationStart()) {
 				groupObservationsInfo.addPendingClient(this.getURI(), exchange);
@@ -141,6 +142,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 		LOGGER.debug("Sending informative responses to {} pending clients for {}", pendingClients.size(), uriPath);
 
 		for (CoapExchange clientExchange : pendingClients) {
+			groupInfo.incrementObserverCount(uriPath);
 			sendInformativeResponse(clientExchange, groupInfo.getGroupObservationInfo(uriPath));
 		}
 	}
@@ -231,7 +233,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 				LOGGER.warn("Failed to encrypt INIT_NOTIF, storing plaintext last_notif");
 				observationInfo.setLastNotif(initNotif);
 			}
-
+			
 			sendInformativeResponsesToClients(uriPath);
 		} else {
 			// Section 4.5: If cancelling, send 5.03 with no payload and no Observe option
