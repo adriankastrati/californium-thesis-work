@@ -42,6 +42,7 @@ import org.eclipse.californium.oscore.OSCoreCoapStackFactory;
 import org.eclipse.californium.oscore.OSCoreCtx;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.OscoreOptionDecoder;
+import org.eclipse.californium.oscore.PhantomRequestValues;
 import org.eclipse.californium.oscore.RequestDecryptor;
 import org.eclipse.californium.oscore.ResponseDecryptor;
 import org.eclipse.californium.oscore.group.GroupCtx;
@@ -226,8 +227,9 @@ public class OSCOREMulticastObserveClient {
 		}
 		LOGGER.info("Phantom request verified successfully");
 
-		// Store phantom request parameters (kid, piv, kid_context) in GroupCtx
-		// so Decryptor uses them in AAD when decrypting multicast notifications.
+		// Store phantom request parameters (kid, piv, kid_context) keyed by the
+		// observation's multicast token so the Decryptor can retrieve them per
+		// observation when computing the AAD for multicast notifications.
 		int phantomSeqNr = 0;
 		try {
 			OscoreOptionDecoder phantomOptionDecoder = new OscoreOptionDecoder(phantomOscoreOption);
@@ -238,9 +240,10 @@ public class OSCOREMulticastObserveClient {
 
 			OSCoreCtx oscoreCtx = db.getContext(phantomKid, phantomKidContext);
 			if (oscoreCtx instanceof GroupRecipientCtx) {
-				GroupCtx groupCtx = ((GroupRecipientCtx) oscoreCtx).getCommonCtx();
-				groupCtx.setPhantomRequestValues(phantomKid, phantomPiv, phantomKidContext);
-				LOGGER.info("Stored phantom request values - kid: {}, piv: {}, kidContext: {}",
+				db.addPhantomRequestValues(multicastToken,
+						new PhantomRequestValues(phantomKid, phantomPiv, phantomKidContext));
+				LOGGER.info("Stored phantom request values for token {} - kid: {}, piv: {}, kidContext: {}",
+					multicastToken.getAsString(),
 					StringUtil.byteArray2Hex(phantomKid),
 					StringUtil.byteArray2Hex(phantomPiv),
 					StringUtil.byteArray2Hex(phantomKidContext));
@@ -304,7 +307,8 @@ public class OSCOREMulticastObserveClient {
             
             // Create phantom request to register observe relation for multicast token matching.
             // Uses Bytes.EMPTY for OSCORE option; the phantom values (kid/piv/kid_context)
-            // are already stored in GroupCtx for AAD computation during notification decryption.
+            // are stored in the OSCoreCtxDB keyed by this token, so Decryptor can
+            // retrieve them per observation for AAD computation during notification decryption.
             Request phantomRequest1 = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
             LOGGER.info("Created PhantomRequest with token: {}", multicastToken);
             

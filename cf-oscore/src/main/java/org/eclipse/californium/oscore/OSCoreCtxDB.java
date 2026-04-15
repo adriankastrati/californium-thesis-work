@@ -121,9 +121,32 @@ public interface OSCoreCtxDB {
 
 	/**
 	 * Get a context based on its ID Context
-	 * 
+	 *
 	 * @param IDContext the ID context
 	 * @return the retrieved context
 	 */
 	OSCoreCtx getContextByIDContext(byte[] IDContext);
+
+	/**
+	 * Associate phantom registration request values with an observation token.
+	 * Used by clients to reconstruct the AAD when decrypting multicast
+	 * notifications that share the observation's token.
+	 *
+	 * @param token the observation token
+	 * @param values the phantom request kid, piv and kid context
+	 */
+	void addPhantomRequestValues(Token token, PhantomRequestValues values);
+
+	/**
+	 * @param token the observation token
+	 * @return the phantom request values for this token, or {@code null}
+	 */
+	PhantomRequestValues getPhantomRequestValues(Token token);
+
+	/**
+	 * Remove phantom request values for the given token.
+	 *
+	 * @param token the observation token
+	 */
+	void removePhantomRequestValues(Token token);
 }

@@ -108,7 +108,7 @@ public class RequestDecryptor extends Decryptor {
 
 		byte[] plaintext;
 		try {
-			plaintext = decryptAndDecode(enc, request, ctx, null);
+			plaintext = decryptAndDecode(enc, request, ctx, null, null);
 		} catch (OSException e) {
 			//First check for replay exceptions
 			if (e.getMessage().equals(ErrorDescriptions.REPLAY_DETECT)) { 

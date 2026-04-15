@@ -59,6 +59,7 @@ public class HashMapCtxDB implements OSCoreCtxDB {
 
 	private HashMap<Token, OSCoreCtx> tokenMap;
 	private HashMap<String, OSCoreCtx> uriMap;
+	private HashMap<Token, PhantomRequestValues> phantomRequestMap;
 
 	private ArrayList<Token> allTokens;
 
@@ -70,6 +71,7 @@ public class HashMapCtxDB implements OSCoreCtxDB {
 		this.tokenMap = new HashMap<>();
 		this.contextMap = new HashMap<>();
 		this.uriMap = new HashMap<>();
+		this.phantomRequestMap = new HashMap<>();
 		this.allTokens = new ArrayList<Token>();
 	}
 
@@ -348,6 +350,31 @@ public class HashMapCtxDB implements OSCoreCtxDB {
 	@Override
 	public synchronized void removeToken(Token token) {
 		tokenMap.remove(token);
+		phantomRequestMap.remove(token);
+	}
+
+	@Override
+	public synchronized void addPhantomRequestValues(Token token, PhantomRequestValues values) {
+		if (token == null) {
+			LOGGER.error(ErrorDescriptions.TOKEN_NULL);
+			throw new NullPointerException(ErrorDescriptions.TOKEN_NULL);
+		}
+		phantomRequestMap.put(token, values);
+	}
+
+	@Override
+	public synchronized PhantomRequestValues getPhantomRequestValues(Token token) {
+		if (token == null) {
+			return null;
+		}
+		return phantomRequestMap.get(token);
+	}
+
+	@Override
+	public synchronized void removePhantomRequestValues(Token token) {
+		if (token != null) {
+			phantomRequestMap.remove(token);
+		}
 	}
 
 	/**
@@ -358,6 +385,7 @@ public class HashMapCtxDB implements OSCoreCtxDB {
 		contextMap.clear();
 		tokenMap.clear();
 		uriMap.clear();
+		phantomRequestMap.clear();
 		allTokens = new ArrayList<Token>();
 	}
 

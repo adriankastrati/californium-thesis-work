@@ -44,7 +44,10 @@ public class OSCoreResource extends CoapResource {
 	public void handleRequest(final Exchange exchange) {
 		if (isProtected) {
 			OptionSet options = exchange.getRequest().getOptions();
-			if (!options.hasOscore()) {
+			// Skip OSCORE check when re-processing for observe notifications;
+			// the relation is already established and the option was removed
+			// during initial request processing.
+			if (!options.hasOscore() && exchange.getRelation() == null) {
 				Response r = new Response(ResponseCode.UNAUTHORIZED);
 				r.setPayload(ErrorDescriptions.OSCORE_ONLY_RESOURCE);
 				exchange.sendResponse(r);

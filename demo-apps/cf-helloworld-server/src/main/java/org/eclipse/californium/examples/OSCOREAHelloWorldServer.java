@@ -211,7 +211,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 		Endpoint endpoint = server.getEndpoint(listenPort);
 
-		resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
+		//resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
 		resource.add(new ObservableResource(server));
 		resource.add(new OSCOREMulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer(), db));
 		server.start();
@@ -266,7 +266,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 	private static class ObservableResource extends OSCoreResource {
 
-		public String content = "one";
+		public String content = "";
 		private boolean firstRequestReceived = false;
 		private Timer timer = new Timer();
 		OSCOREAHelloWorldServer server;
@@ -310,16 +310,6 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			@Override
 			public void run() {
 				if (firstRequestReceived) {
-					String str = content + " -> " + "two";
-					if (content.equals("two")) {
-						try {
-							Thread.sleep(100000000);
-						} catch (InterruptedException e) {
-							Thread.currentThread().interrupt();
-						}
-					}
-					System.out.println("Timer ran out: " + str);
-					content = "two";
 					changed();
 				}
 			}

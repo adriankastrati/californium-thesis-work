@@ -148,9 +148,11 @@ public class ResponseDecryptor extends Decryptor {
 			throw new OSException(ErrorDescriptions.CONTEXT_REGENERATION_FAILED);
 		}
 
+		PhantomRequestValues phantomValues = db.getPhantomRequestValues(token);
+
 		//Check if parsing of response plaintext succeeds
 		try {
-			byte[] plaintext = decryptAndDecode(enc, response, ctx, requestSequenceNr);
+			byte[] plaintext = decryptAndDecode(enc, response, ctx, requestSequenceNr, phantomValues);
 	
 			DatagramReader reader = new DatagramReader(new ByteArrayInputStream(plaintext));
 			

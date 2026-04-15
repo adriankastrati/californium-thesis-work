@@ -74,18 +74,20 @@ public abstract class Decryptor {
 
 	/**
 	 * Decrypts and decodes the message.
-	 * 
+	 *
 	 * @param enc the COSE structure
 	 * @param message the message
 	 * @param ctx the OSCore context
 	 * @param seqByToken the sequence number
-	 * 
+	 * @param phantomValues phantom registration request values associated with
+	 *            this observation token, or {@code null} if not applicable
+	 *
 	 * @return the decrypted plaintext
 	 *
 	 * @throws OSException if decryption or decoding fails
 	 */
-	protected static byte[] decryptAndDecode(Encrypt0Message enc, Message message, OSCoreCtx ctx, Integer seqByToken)
-			throws OSException {
+	protected static byte[] decryptAndDecode(Encrypt0Message enc, Message message, OSCoreCtx ctx, Integer seqByToken,
+			PhantomRequestValues phantomValues) throws OSException {
 		int seq = -2;
 		boolean isRequest = message instanceof Request;
 		byte[] nonce = null;
@@ -191,9 +193,8 @@ public abstract class Decryptor {
     
 			GroupCtx groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
 			// Use phantom request PIV if available, otherwise original request sequence
-			if (groupCtx != null && groupCtx.hasPhantomRequestValues()) {
-				byte[] phantomPiv = groupCtx.getPhantomRequestPiv();
-				seq = ByteBuffer.wrap(expandToIntSize(phantomPiv)).getInt();
+			if (phantomValues != null && phantomValues.getPiv() != null) {
+				seq = ByteBuffer.wrap(expandToIntSize(phantomValues.getPiv())).getInt();
 			} else {
 				seq = seqByToken;
 			}
@@ -227,9 +228,9 @@ public abstract class Decryptor {
 			if (isDetReq) {
 				groupCtx = ((GroupRecipientCtx) ctx).getCommonCtx();
 				senderId = groupCtx.getDeterministicSenderCtx().getSenderId();
-			} else if (groupCtx != null && groupCtx.hasPhantomRequestValues()) {
+			} else if (phantomValues != null && phantomValues.getKid() != null) {
 				// For phantom request responses, use the phantom request's KID in the AAD
-				senderId = groupCtx.getPhantomRequestKid();
+				senderId = phantomValues.getKid();
 			} else {
 				senderId = ctx.getSenderId();
 			}

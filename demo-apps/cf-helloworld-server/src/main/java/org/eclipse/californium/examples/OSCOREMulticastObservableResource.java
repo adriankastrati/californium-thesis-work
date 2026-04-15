@@ -67,7 +67,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 	private static final Logger LOGGER = LoggerFactory.getLogger(OSCOREMulticastObservableResource.class);
 	private static final int CANCEL_AFTER_NOTIFICATIONS = 5;
 
-	private volatile int content = 1;
+	private volatile String content = "";
 	private Timer timer = new Timer();
 	private volatile boolean cancelling = false;
 
@@ -106,7 +106,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 			}
 		} else {
 			// set new last_notif
-			exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
+			exchange.respond(ResponseCode.CONTENT, this.content);
 		}
 	}
   
@@ -226,7 +226,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 			}
 
 			// Respond to establish the observe relation (response will be suppressed)
-			exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
+			exchange.respond(ResponseCode.CONTENT, this.content);
 			LOGGER.debug("Phantom request established for {} with content: {}", uriPath, this.content);
 
 			// Section 4.1 Step 6 + Section 9.2: Build INIT_NOTIF and encrypt
@@ -234,7 +234,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 			// INIT_NOTIF is formatted as a multicast notification (Section 4.3):
 			// includes Observe option and current resource representation.
 			Response initNotif = new Response(ResponseCode.CONTENT);
-			initNotif.setPayload(Integer.toString(this.content));
+			initNotif.setPayload(this.content);
 			initNotif.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
 			initNotif.getOptions().setObserve(1);
 			byte[] encryptedLastNotif = encryptNotificationForLastNotif(initNotif, observationInfo);
@@ -259,7 +259,7 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 			LOGGER.debug("Sending multicast notification for {} with content: {}", uriPath, this.content);
 
 			Response notification = new Response(ResponseCode.CONTENT);
-			notification.setPayload(Integer.toString(this.content));
+			notification.setPayload(this.content);
 			notification.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
 
 			// Encrypt last_notif with Group OSCORE before storing (Section 9.2)
@@ -368,9 +368,6 @@ public class OSCOREMulticastObservableResource extends OSCoreResource {
 
 		@Override
 		public void run() {
-			int prev = content;
-			content++;
-			LOGGER.debug("{} -> {}", prev, content);
 			changed();
 
 			if (GroupObservationsInfo.getInstance().isOngoingGroupObservation(getURI())) {
