@@ -8,21 +8,25 @@ import java.net.NetworkInterface;
 
 import org.eclipse.californium.core.CoapClient;
 import org.eclipse.californium.core.CoapHandler;
-import org.eclipse.californium.core.CoapObserveRelation;
 import org.eclipse.californium.core.CoapResponse;
 import org.eclipse.californium.core.Utils;
+import org.eclipse.californium.core.coap.CoAP.Code;
+import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
+import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
+import org.eclipse.californium.core.network.serialization.UdpDataParser;
 import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.elements.AddressEndpointContext;
 import org.eclipse.californium.elements.UDPConnector;
 import org.eclipse.californium.elements.UdpMulticastConnector;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.config.UdpConfig;
+import org.eclipse.californium.elements.util.DatagramReader;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,7 +70,6 @@ public class MulticastObserveClient {
 		public void onLoad(CoapResponse response) {
 			LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
 
-			// First response might be an informative response containing ObservationInfo (group + token).
 			if (response.getOptions().isContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR)) {
 				LOGGER.info("Got APPLICATION_INFORMATIVE_RESPONSE_CBOR (ObservationInfo)");
 				ObservationInfo info = ObservationInfo.fromCbor(response.getPayload());
@@ -76,9 +79,36 @@ public class MulticastObserveClient {
 				int groupPort = groupSock.getPort();
 				Token multicastToken = info.getToken();
 
+				LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
 				LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
 				LOGGER.info("Token: {}", multicastToken.getAsString());
-				LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
+
+				// Section 5.2 Step 2-3: Process ph_req if present
+				byte[] phantomRequestBytes = info.getPhReq();
+				if (phantomRequestBytes != null && phantomRequestBytes.length > 0) {
+					LOGGER.info("Received ph_req ({} bytes)", phantomRequestBytes.length);
+				}
+
+				// Section 5.2 Steps 5-6: Process last_notif if present (plaintext)
+				byte[] lastNotifBytes = info.getLastNotifBytes();
+				if (lastNotifBytes != null && lastNotifBytes.length > 0) {
+					int notifCode = lastNotifBytes[0] & 0xFF;
+					byte[] notifOptionsAndPayload = new byte[lastNotifBytes.length - 1];
+					System.arraycopy(lastNotifBytes, 1, notifOptionsAndPayload, 0, notifOptionsAndPayload.length);
+
+					Response lastNotif = new Response(ResponseCode.valueOf(notifCode));
+					lastNotif.setToken(multicastToken);
+					UdpDataParser notifParser = new UdpDataParser();
+					notifParser.parseOptionsAndPayload(
+							new DatagramReader(notifOptionsAndPayload),
+							lastNotif);
+
+					LOGGER.info("last_notif - code: {}, payload: {}",
+							lastNotif.getCode(), lastNotif.getPayloadString());
+					LOGGER.info("last_notif: \n {}", Utils.prettyPrint(lastNotif));
+				} else {
+					LOGGER.info("No last_notif in informative response");
+				}
 
 				if (!receiverReady) {
 					try {
@@ -89,7 +119,7 @@ public class MulticastObserveClient {
 						Request phantomRequest = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
 						LOGGER.info("Created PhantomRequest with token: {}", multicastToken);
 
-						CoapObserveRelation phantomRelation = multicastClient.observe(phantomRequest, this);
+						multicastClient.observe(phantomRequest, this);
 						LOGGER.info("Registered phantom observe relation.");
 
 						receiverReady = true;
@@ -100,6 +130,22 @@ public class MulticastObserveClient {
 					LOGGER.info("Multicast receiver already active (ignoring extra informative response).");
 				}
 
+				return;
+			}
+
+			// Section 5.4: Detect cancellation — 5.03 with no payload and no Observe option
+			if (response.getCode() == ResponseCode.SERVICE_UNAVAILABLE
+					&& !response.getOptions().hasObserve()
+					&& (response.getPayload() == null || response.getPayload().length == 0)) {
+				LOGGER.info("Received group observation cancellation (5.03, no payload, no Observe)");
+				if (multicastClient != null) {
+					multicastClient.shutdown();
+				}
+				receiverReady = false;
+				synchronized (this) {
+					notificationCount = targetCount;
+					notifyAll();
+				}
 				return;
 			}
 
@@ -114,6 +160,24 @@ public class MulticastObserveClient {
 		public void onError() {
 			LOGGER.error("Error receiving multicast notification");
 		}
+	}
+
+	private static Request createRequest(Code code, String resourceUri) {
+		Request r = new Request(code);
+		r.setConfirmable(true);
+		r.setURI(resourceUri);
+		r.setObserve();
+
+		// Section 5.1: Observation request MUST NOT have link-local source or destination addresses
+		InetAddress destAddr = r.getDestinationContext() != null
+				? r.getDestinationContext().getPeerAddress().getAddress() : null;
+		if (destAddr != null && destAddr.isLinkLocalAddress()) {
+			throw new IllegalArgumentException(
+					"Observation request destination " + destAddr.getHostAddress()
+					+ " is link-local (RFC Section 5.1)");
+		}
+
+		return r;
 	}
 
 	/**
@@ -150,14 +214,14 @@ public class MulticastObserveClient {
 		UdpMulticastConnector.Builder mcBuilder = new UdpMulticastConnector.Builder()
 				.setConfiguration(config)
 				.setMulticastReceiver(true)
-				.setLocalPort(port)
+				.setLocalAddress(groupAddr, port)
 				.addMulticastGroup(groupAddr, ni);
 
 		multicastReceiver = mcBuilder.build();
-		multicastReceiver.setLoopbackMode(true);
 
 		try {
 			multicastReceiver.start();
+			multicastReceiver.setLoopbackMode(true);
 			LOGGER.info("Multicast receiver started on {} port {}", groupAddr, port);
 		} catch (java.net.BindException ex) {
 			LOGGER.warn("Bind to multicast address failed, retrying with port only: {}", ex.getMessage());
@@ -188,15 +252,24 @@ public class MulticastObserveClient {
 
 	public static void main(String requestedURI, int timeout) {
 		try {
-			CoapClient observeClient = new CoapClient(requestedURI);
-			MulticastObserveHandler handler = new MulticastObserveHandler(4);
-			CoapObserveRelation relation = observeClient.observe(handler);
+			Configuration config = Configuration.getStandard();
+			Configuration.setStandard(config);
+
+			LOGGER.debug("Requesting {}", requestedURI);
+
+			CoapEndpoint endpoint = new CoapEndpoint.Builder().setConfiguration(config).build();
+			CoapClient client = new CoapClient();
+			client.setEndpoint(endpoint);
+			client.setURI(requestedURI);
+
+			Request multicastRequest = createRequest(Code.GET, requestedURI);
+
+			MulticastObserveHandler handler = new MulticastObserveHandler(100);
+			client.observe(multicastRequest, handler);
+
 			handler.waitForNotifications();
-			relation.reactiveCancel();
-			observeClient.shutdown();
-			if (multicastClient != null) {
-				multicastClient.shutdown();
-			}
+
+			if (multicastClient != null) multicastClient.shutdown();
 		} catch (Exception e) {
 			LOGGER.error("Error in multicast observe client", e);
 		}
