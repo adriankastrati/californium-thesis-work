@@ -251,7 +251,9 @@ public class GroupObservationsInfo {
 		phantomRequest.setObserve();
 		phantomRequest.getOptions().setUriPath(resource.getURI());
 		phantomRequest.setType(Type.NON);
-		phantomRequest.getOptions().setOscore(Bytes.EMPTY);
+		if (hasOscore) {
+			phantomRequest.getOptions().setOscore(Bytes.EMPTY);
+		}
 
 		InetSocketAddress localAddress = triggeringCoapExchange.advanced().getEndpoint().getAddress();
 		phantomRequest.setDestinationContext(new AddressEndpointContext(localAddress));

@@ -46,34 +46,26 @@ import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.network.CoapEndpoint;
-import org.eclipse.californium.core.network.Exchange;
-import org.eclipse.californium.core.network.Exchange.Origin;
+import org.eclipse.californium.core.network.serialization.DataSerializer;
 import org.eclipse.californium.core.observe.GroupObservationsInfo;
 import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.core.observe.ObserveRelation;
 import org.eclipse.californium.core.server.MessageDeliverer;
-import org.eclipse.californium.core.server.resources.Resource;
-import org.eclipse.californium.elements.AddressEndpointContext;
+import org.eclipse.californium.elements.util.DatagramWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * A CoapResource that supports multicast group observation (RFC 7641 + RFC 7390).
- * <p>
- * When enough observers register, this resource sets up a group observation by
- * creating a phantom request/exchange. Subsequent clients receive an informative
- * response (5.03) directing them to the multicast group.
- */
 public class MulticastObservableResource extends CoapResource {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(MulticastObservableResource.class);
+	private static final int CANCEL_AFTER_NOTIFICATIONS = 5;
 
-	private volatile int content = 1;
-	private volatile boolean sentFirstNotifications = false;
+	private volatile String content = "";
+	private Timer timer = new Timer();
+	private volatile boolean cancelling = false;
 
 	private final boolean isGroupObservable;
 	private final MessageDeliverer serverMessageDeliverer;
-	private final Timer timer = new Timer();
 
 	public MulticastObservableResource(String uri, boolean groupObservable, MessageDeliverer serverMessageDeliverer) {
 		super(uri);
@@ -82,8 +74,7 @@ public class MulticastObservableResource extends CoapResource {
 		setObservable(true);
 		setObserveType(null);
 		this.isGroupObservable = groupObservable;
-		LOGGER.info("MulticastObservableResource created - URI: {}, Path: {}, Observable: {}",
-				uri, this.getPath(), isObservable());
+		timer.schedule(new UpdateTask(), 0, 10000);
 	}
 
 	@Override
@@ -92,92 +83,85 @@ public class MulticastObservableResource extends CoapResource {
 		String uriPath = this.getURI();
 
 		if (exchange.getRequestOptions().hasObserve() && exchange.getRequestOptions().getObserve() == 0) {
-			if (!sentFirstNotifications) {
-				timer.schedule(new TimerTask() {
-					@Override
-					public void run() {
-						content++;
-						changed();
-					}
-				}, 0, 15000);
-				sentFirstNotifications = true;
-			}
-
 			if (exchange.advanced().isPhantomRequest()) {
 				handlePhantomRequest(exchange);
 			} else if (groupObservationsInfo.isOngoingGroupObservation(uriPath)) {
-				// Group observation already active, send informative response
 				ObservationInfo obsInfo = groupObservationsInfo.getGroupObservationInfo(uriPath);
+				groupObservationsInfo.incrementObserverCount(uriPath);
 				sendInformativeResponse(exchange, obsInfo);
 			} else if (shouldGroupObservationStart()) {
 				groupObservationsInfo.addPendingClient(this.getURI(), exchange);
 				setUpGroupObservation(exchange);
 			}
 		} else {
-			exchange.respond(ResponseCode.CONTENT, Integer.toString(content));
+			exchange.respond(ResponseCode.CONTENT, this.content);
 		}
 	}
 
 	/**
-	 * Sends an informative response (5.03 Service Unavailable) with tp_info
-	 * to redirect a client to the multicast group observation.
+	 * Send informative response (5.03 Service Unavailable) with tp_info to a client.
+	 * Per draft-ietf-core-observe-multicast-notifications Section 4.2.
 	 */
-	private void sendInformativeResponse(CoapExchange exchange, ObservationInfo obsInfo) {
+	private void sendInformativeResponse(CoapExchange clientExchange, ObservationInfo obsInfo) {
+		clientExchange.accept();
+
+		// Section 4.2: Informative response MUST NOT have link-local source or destination addresses
+		InetSocketAddress clientAddress = clientExchange.advanced().getRequest().getSourceContext().getPeerAddress();
+		if (clientAddress.getAddress().isLinkLocalAddress()) {
+			LOGGER.warn("Refusing to send informative response: client address {} is link-local (Section 4.2)", clientAddress);
+			return;
+		}
+		InetSocketAddress localAddress = clientExchange.advanced().getEndpoint().getAddress();
+		if (localAddress.getAddress() != null && localAddress.getAddress().isLinkLocalAddress()) {
+			LOGGER.warn("Refusing to send informative response: server address {} is link-local (Section 4.2)", localAddress);
+			return;
+		}
+
 		Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
+		response.setType(Type.CON);
 		response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
-		response.setConfirmable(true);
-		byte[] payload = obsInfo.toCbor();
-		response.setPayload(payload);
-
+		response.setPayload(obsInfo.toCbor());
+		response.setDestinationContext(clientExchange.advanced().getRequest().getSourceContext());
+		response.setToken(clientExchange.advanced().getRequest().getToken());
+		LOGGER.debug("Informative response payload: {}", obsInfo.toString());
 		LOGGER.debug("Sending informative response (5.03) to client {} with token {}",
-				exchange.getSourceSocketAddress(), exchange.advanced().getRequest().getToken());
+				clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(),
+				clientExchange.advanced().getRequest().getToken());
 
-		exchange.respond(response);
+		clientExchange.advanced().getRequest().getOptions().removeObserve();
+		clientExchange.respond(response);
 	}
 
 	/**
-	 * Sends informative responses to all pending clients waiting for
-	 * group observation setup to complete.
+	 * Send informative responses to all pending clients waiting for group observation setup.
 	 */
-	private void sendInformativeResponsesToClients(String uriPath, ObservationInfo obsInfo) {
+	private void sendInformativeResponsesToClients(String uriPath) {
 		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
 		List<CoapExchange> pendingClients = groupInfo.removePendingClients(uriPath);
 
-		LOGGER.info("Sending informative responses to {} pending clients for resource {}",
-				pendingClients.size(), uriPath);
+		LOGGER.debug("Sending informative responses to {} pending clients for {}", pendingClients.size(), uriPath);
 
 		for (CoapExchange clientExchange : pendingClients) {
-			Response response = new Response(ResponseCode.SERVICE_UNAVAILABLE);
-			response.getOptions().setContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR);
-
-			byte[] payload = groupInfo.getGroupObservationInfo(uriPath).toCbor();
-			response.setPayload(payload);
-
-			response.setDestinationContext(clientExchange.advanced().getRequest().getSourceContext());
-			response.setToken(clientExchange.advanced().getRequest().getToken());
-
-			LOGGER.info("Sending informative response (5.03) to pending client {} with token {}",
-					clientExchange.advanced().getRequest().getSourceContext().getPeerAddress(),
-					clientExchange.advanced().getRequest().getToken());
-
-			clientExchange.respond(response);
+			groupInfo.incrementObserverCount(uriPath);
+			sendInformativeResponse(clientExchange, groupInfo.getGroupObservationInfo(uriPath));
 		}
 	}
 
 	@Override
 	public void changed() {
-		LOGGER.info("Observer count at change of resource {}", this.getObserverCount());
+		LOGGER.debug("Observer count at change: {}", this.getObserverCount());
 		super.changed();
 	}
 
 	@Override
 	public void removeObserveRelation(ObserveRelation relation) {
 		super.removeObserveRelation(relation);
-		LOGGER.info("Observe relation removed by client");
 	}
 
 	@Override
 	public void handlePUT(CoapExchange exchange) {
+		this.content = exchange.getRequestText();
+		exchange.respond(ResponseCode.CHANGED);
 		changed();
 	}
 
@@ -186,45 +170,79 @@ public class MulticastObservableResource extends CoapResource {
 	}
 
 	/**
-	 * Handles a phantom request that establishes or uses the group observation.
-	 * <p>
-	 * If the token matches the pending multicast token, this is the initial
-	 * phantom establishing the group observation. Otherwise, it is a
-	 * notification for an already-established phantom exchange.
+	 * Cancel the group observation per draft Section 4.5.
+	 * Sends a multicast 5.03 with Token T (no payload, no Observe option),
+	 * then cleans up all group observation state.
 	 */
+	public void cancelGroupObservation() {
+		String uriPath = this.getURI();
+		GroupObservationsInfo groupInfo = GroupObservationsInfo.getInstance();
+
+		if (!groupInfo.isOngoingGroupObservation(uriPath)) {
+			LOGGER.debug("No ongoing group observation to cancel for {}", uriPath);
+			return;
+		}
+
+		LOGGER.info("Cancelling group observation for {}", uriPath);
+		cancelling = true;
+		changed();
+		groupInfo.removeGroupObservation(uriPath);
+		cancelling = false;
+	}
+
 	private void handlePhantomRequest(CoapExchange exchange) {
 		String uriPath = this.getURI();
 		GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
 		Token exchangeToken = exchange.advanced().getRequest().getToken();
-
 		Token pendingToken = groupObservationsInfo.getPendingToken(uriPath);
 
 		if (pendingToken != null && pendingToken.equals(exchangeToken)) {
-			// Suppress the response -- it establishes observation but is not sent on wire
 			exchange.advanced().setSuppressResponse(true);
 
-			// Create ObservationInfo for the group observation
 			InetSocketAddress localAddress = exchange.advanced().getEndpoint().getAddress();
 			InetSocketAddress multicastAddress = groupObservationsInfo.getMulticastAddress();
 			ObservationInfo observationInfo = new ObservationInfo(localAddress, multicastAddress, exchangeToken);
 
-			// Start the group observation (removes token from pending map)
 			groupObservationsInfo.startGroupObservation(uriPath, observationInfo);
-			// Attach the phantom request for future reference
-			groupObservationsInfo.getGroupObservationInfo(uriPath).setPhReq(exchange.advanced().getProtectedRequest());
-
-			// Clear setup-in-progress flag
 			groupObservationsInfo.setGroupObservationSetupInProgress(uriPath, false);
 
-			// Respond to establish the observe relation internally (response is suppressed)
-			exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
+			// Store transport-independent serialization of the phantom request (Section 4.2.2)
+			byte[] phReqBytes = serializeRequestTransportIndependent(exchange.advanced().getRequest());
+			observationInfo.setPhReq(phReqBytes);
 
-			// Send informative responses to all pending clients
-			sendInformativeResponsesToClients(uriPath, observationInfo);
+			exchange.respond(ResponseCode.CONTENT, this.content);
+			LOGGER.debug("Phantom request established for {} with content: {}", uriPath, this.content);
+
+			// Section 4.1 Step 6: Build INIT_NOTIF and store as last_notif (plaintext)
+			Response initNotif = new Response(ResponseCode.CONTENT);
+			initNotif.setPayload(this.content);
+			initNotif.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
+			initNotif.getOptions().setObserve(1);
+			observationInfo.setLastNotif(initNotif);
+			LOGGER.debug("Stored INIT_NOTIF as last_notif");
+
+			sendInformativeResponsesToClients(uriPath);
 		} else {
-			// Notification for an established phantom exchange -- send to multicast address
-			LOGGER.info("Sending multicast notification for {} with content: {}", uriPath, this.content);
-			exchange.respond(ResponseCode.CONTENT, Integer.toString(this.content));
+			// Section 4.5: If cancelling, send 5.03 with no payload and no Observe option
+			if (cancelling) {
+				LOGGER.info("Sending cancellation 5.03 for group observation on {}", uriPath);
+				exchange.respond(new Response(ResponseCode.SERVICE_UNAVAILABLE));
+				return;
+			}
+
+			LOGGER.debug("Sending multicast notification for {} with content: {}", uriPath, this.content);
+
+			Response notification = new Response(ResponseCode.CONTENT);
+			notification.setPayload(this.content);
+			notification.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
+
+			// Update last_notif with the latest notification (Section 4.2)
+			ObservationInfo observationInfo = groupObservationsInfo.getGroupObservationInfo(uriPath);
+			if (observationInfo != null) {
+				observationInfo.setLastNotif(notification);
+			}
+
+			exchange.respond(notification);
 		}
 	}
 
@@ -232,48 +250,6 @@ public class MulticastObservableResource extends CoapResource {
 		return this.getObserverCount() >= 0;
 	}
 
-	/**
-	 * Creates a phantom request and exchange for multicast group observation.
-	 * <p>
-	 * The phantom request is a self-generated observe request whose source context
-	 * is set to the server's own address. ObserveLayer detects it as a phantom
-	 * and redirects responses to the multicast group address.
-	 *
-	 * @param resource the resource to observe
-	 * @param multicastToken the token allocated for multicast notifications
-	 * @param triggeringExchange the original client exchange that triggered setup
-	 * @return the phantom exchange ready to be delivered
-	 */
-	protected Exchange createPhantomExchange(Resource resource, Token multicastToken, Exchange triggeringExchange) {
-		Request phantomRequest = Request.newGet();
-		phantomRequest.setToken(multicastToken);
-		phantomRequest.setObserve();
-		phantomRequest.getOptions().setUriPath(resource.getURI());
-		phantomRequest.setType(Type.NON);
-
-		InetSocketAddress localAddress = triggeringExchange.getEndpoint().getAddress();
-
-		// Source is set to server's own address so ObserveLayer can detect phantom requests
-		phantomRequest.setSourceContext(new AddressEndpointContext(localAddress));
-		LOGGER.debug("Phantom request source set to server address: {}", localAddress);
-
-		Exchange phantomExchange = new Exchange(phantomRequest, localAddress, Origin.REMOTE,
-				triggeringExchange.getEndpoint().getExecutor());
-
-		if (triggeringExchange.getEndpoint() != null) {
-			phantomExchange.setEndpoint(triggeringExchange.getEndpoint());
-		}
-
-		LOGGER.debug("Created phantom exchange for resource {} with multicast token {}",
-				resource.getURI(), multicastToken);
-
-		return phantomExchange;
-	}
-
-	/**
-	 * Initiates group observation setup by allocating a multicast token
-	 * and injecting a phantom request into the CoAP stack.
-	 */
 	private void setUpGroupObservation(CoapExchange exchange) {
 		String resourceUri = this.getURI();
 		GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
@@ -286,7 +262,7 @@ public class MulticastObservableResource extends CoapResource {
 					LOGGER.debug("Phantom request for {} - allowing delivery during setup", resourceUri);
 				} else {
 					groupObservationsInfo.addPendingClient(resourceUri, exchange);
-					LOGGER.debug("Group observation setup in progress for {}, added client as pending", resourceUri);
+					LOGGER.debug("Setup in progress for {}, added client as pending", resourceUri);
 					return;
 				}
 			} else {
@@ -298,18 +274,42 @@ public class MulticastObservableResource extends CoapResource {
 			return;
 		}
 
-		// Allocate multicast token
 		Token multicastToken = groupObservationsInfo.allocateMulticastToken(resourceUri);
-		LOGGER.debug("Allocated multicast token {} for group observation on {}", multicastToken, resourceUri);
+		LOGGER.debug("Allocated multicast token {} for {}", multicastToken, resourceUri);
 
-		// Create and send phantom request through the CoAP stack
-		final Request phantomRequest = groupObservationsInfo.createPhantomRequest(
-				this, multicastToken, exchange, false);
+		final Request phantomRequest = groupObservationsInfo.createPhantomRequest(this, multicastToken, exchange, false);
 
-		LOGGER.debug("Injecting phantom request into stack for {} with token {}", resourceUri, multicastToken);
+		LOGGER.debug("Injecting phantom request for {} with token {}", resourceUri, multicastToken);
 		CoapEndpoint endpoint = (CoapEndpoint) exchange.advanced().getEndpoint();
 		endpoint.sendRequest(phantomRequest);
+	}
 
-		LOGGER.debug("Phantom request injected for {} with token {}", resourceUri, multicastToken);
+	/**
+	 * Serializes a Request to transport-independent format (Section 4.2.2):
+	 * code byte + serialized options + optional (0xFF + payload).
+	 */
+	private byte[] serializeRequestTransportIndependent(Request request) {
+		DatagramWriter writer = new DatagramWriter();
+		writer.writeByte((byte) request.getRawCode());
+		DataSerializer.serializeOptionsAndPayload(writer, request.getOptions(), request.getPayload());
+		return writer.toByteArray();
+	}
+
+	class UpdateTask extends TimerTask {
+		private int notificationCount = 0;
+
+		@Override
+		public void run() {
+			changed();
+
+			if (GroupObservationsInfo.getInstance().isOngoingGroupObservation(getURI())) {
+				notificationCount++;
+				if (notificationCount >= CANCEL_AFTER_NOTIFICATIONS) {
+					LOGGER.info("Reached {} notifications, cancelling group observation", CANCEL_AFTER_NOTIFICATIONS);
+					cancelGroupObservation();
+					notificationCount = 0;
+				}
+			}
+		}
 	}
 }
