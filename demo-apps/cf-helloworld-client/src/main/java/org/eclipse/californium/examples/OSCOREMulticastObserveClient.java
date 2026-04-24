@@ -15,6 +15,7 @@ import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.coap.CoAP.Code;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
+import org.eclipse.californium.core.coap.option.OptionRegistry;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Message;
 import org.eclipse.californium.core.coap.Request;
@@ -23,7 +24,6 @@ import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.serialization.DataParser;
-import org.eclipse.californium.core.network.serialization.DataParserTest.CustomUdpDataParser;
 import org.eclipse.californium.core.network.serialization.UdpDataParser;
 import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.cose.AlgorithmID;
@@ -269,7 +269,7 @@ public class OSCOREMulticastObserveClient {
           System.arraycopy(lastNotifBytes, 1, notifOptionsAndPayload, 0, notifOptionsAndPayload.length);
           Response lastNotif = new Response(ResponseCode.valueOf(notifCode));
           lastNotif.setToken(multicastToken);
-          DataParser notifParser = new CustomUdpDataParser(true);
+          DataParser notifParser = new UdpDataParser(true, (OptionRegistry) null);
           notifParser.parseOptionsAndPayload(
               new DatagramReader(notifOptionsAndPayload),
               lastNotif);
