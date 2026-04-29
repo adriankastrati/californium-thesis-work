@@ -121,6 +121,7 @@ public class OSCOREMulticastObserveClient {
   private static CoapEndpoint endpoint;
   private static CoapClient multicastClient;
   private static boolean receiverReady = false;
+  private static boolean useOscore = false;
 
   private static class MulticastObserveHandler implements CoapHandler {
 
@@ -179,7 +180,6 @@ public class OSCOREMulticastObserveClient {
     public void onLoad(CoapResponse response) {
       LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
 
-      // First response might be an "informative response" containing ObservationInfo (group+token).
       if (response.getOptions().isContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR)) {
         LOGGER.info("Got APPLICATION_INFORMATIVE_RESPONSE_CBOR (ObservationInfo)");
         ObservationInfo info = ObservationInfo.fromCbor(response.getPayload());
@@ -188,82 +188,83 @@ public class OSCOREMulticastObserveClient {
         InetAddress groupAddr = groupSock.getAddress();
         int groupPort = groupSock.getPort();
         Token multicastToken = info.getToken();
-        
-       
+
         byte[] phantomRequestBytes = info.getPhReq();
+        int phantomSeqNr = 0;
+        byte[] phantomOscoreOption = null;
 
-		// RFC Section 9.3.1: ph_req MUST be present when using Group OSCORE,
-		// otherwise the informative response is considered malformed.
-		if (phantomRequestBytes == null || phantomRequestBytes.length == 0) {
-			LOGGER.error("Malformed informative response: missing required 'ph_req' parameter");
-			return;
-		}
+        if (useOscore) {
+          // OSCORE mode: ph_req MUST be present (RFC Section 9.3.1)
+          if (phantomRequestBytes == null || phantomRequestBytes.length == 0) {
+            LOGGER.error("Malformed informative response: missing required 'ph_req' parameter");
+            return;
+          }
 
-		UdpDataParser parser = new UdpDataParser();
-		Message mess = parser.parseMessage(phantomRequestBytes);
+          UdpDataParser parser = new UdpDataParser();
+          Message mess = parser.parseMessage(phantomRequestBytes);
 
-		Request phantomRequest = null;
-		if (mess instanceof Request) {
-			phantomRequest = (Request) mess;
-		}
+          Request phantomRequest = null;
+          if (mess instanceof Request) {
+            phantomRequest = (Request) mess;
+          }
 
-		if (phantomRequest == null) {
-			LOGGER.error("Failed to parse phantom request from informative response");
-			return;
-		}
+          if (phantomRequest == null) {
+            LOGGER.error("Failed to parse phantom request from informative response");
+            return;
+          }
 
-		// Store the OSCORE option from the server's phantom request.
-		// This contains the server's kid, piv, and kid_context needed
-		// for decrypting multicast notifications (RFC Section 9.3.1/9.3.2).
-		byte[] phantomOscoreOption = phantomRequest.getOptions().getOscore();
+          phantomOscoreOption = phantomRequest.getOptions().getOscore();
 
-		// Decrypt and verify the phantom registration request.
-		// If RequestDecryptor.decrypt succeeds, the request is verified.
-		// If it throws, verification has failed.
-		Request decryptedPhantomRequest = decrypt(phantomRequest);
-		if (decryptedPhantomRequest == null) {
-			LOGGER.error("Phantom request verification failed: decryption or signature check failed");
-			return;
-		}
-		LOGGER.info("Phantom request verified successfully");
+          Request decryptedPhantomRequest = decrypt(phantomRequest);
+          if (decryptedPhantomRequest == null) {
+            LOGGER.error("Phantom request verification failed: decryption or signature check failed");
+            return;
+          }
+          LOGGER.info("Phantom request verified successfully");
 
-		// Store phantom request parameters (kid, piv, kid_context) keyed by the
-		// observation's multicast token so the Decryptor can retrieve them per
-		// observation when computing the AAD for multicast notifications.
-		int phantomSeqNr = 0;
-		try {
-			OscoreOptionDecoder phantomOptionDecoder = new OscoreOptionDecoder(phantomOscoreOption);
-			byte[] phantomKid = phantomOptionDecoder.getKid();
-			byte[] phantomPiv = phantomOptionDecoder.getPartialIV();
-			byte[] phantomKidContext = phantomOptionDecoder.getIdContext();
-			phantomSeqNr = phantomOptionDecoder.getSequenceNumber();
+          try {
+            OscoreOptionDecoder phantomOptionDecoder = new OscoreOptionDecoder(phantomOscoreOption);
+            byte[] phantomKid = phantomOptionDecoder.getKid();
+            byte[] phantomPiv = phantomOptionDecoder.getPartialIV();
+            byte[] phantomKidContext = phantomOptionDecoder.getIdContext();
+            phantomSeqNr = phantomOptionDecoder.getSequenceNumber();
 
-			OSCoreCtx oscoreCtx = db.getContext(phantomKid, phantomKidContext);
-			if (oscoreCtx instanceof GroupRecipientCtx) {
-				db.addPhantomRequestValues(multicastToken,
-						new PhantomRequestValues(phantomKid, phantomPiv, phantomKidContext));
-				LOGGER.info("Stored phantom request values for token {} - kid: {}, piv: {}, kidContext: {}",
-					multicastToken.getAsString(),
-					StringUtil.byteArray2Hex(phantomKid),
-					StringUtil.byteArray2Hex(phantomPiv),
-					StringUtil.byteArray2Hex(phantomKidContext));
-			} else {
-				LOGGER.error("Could not find GroupRecipientCtx for phantom request kid");
-				return;
-			}
-		} catch (CoapOSException e) {
-			LOGGER.error("Failed to parse phantom request OSCORE option: {}", e.getMessage());
-			return;
-		}
+            OSCoreCtx oscoreCtx = db.getContext(phantomKid, phantomKidContext);
+            if (oscoreCtx instanceof GroupRecipientCtx) {
+              db.addPhantomRequestValues(multicastToken,
+                  new PhantomRequestValues(phantomKid, phantomPiv, phantomKidContext));
+              LOGGER.info("Stored phantom request values for token {} - kid: {}, piv: {}, kidContext: {}",
+                  multicastToken.getAsString(),
+                  StringUtil.byteArray2Hex(phantomKid),
+                  StringUtil.byteArray2Hex(phantomPiv),
+                  StringUtil.byteArray2Hex(phantomKidContext));
+            } else {
+              LOGGER.error("Could not find GroupRecipientCtx for phantom request kid");
+              return;
+            }
+          } catch (CoapOSException e) {
+            LOGGER.error("Failed to parse phantom request OSCORE option: {}", e.getMessage());
+            return;
+          }
+        } else {
+          // Non-OSCORE mode: ph_req is optional, just log if present
+          if (phantomRequestBytes != null && phantomRequestBytes.length > 0) {
+            UdpDataParser parser = new UdpDataParser();
+            Message mess = parser.parseMessage(phantomRequestBytes);
+            if (mess instanceof Request) {
+              LOGGER.info("Phantom request parsed successfully: {}", mess);
+            } else {
+              LOGGER.warn("Failed to parse phantom request from informative response");
+            }
+          }
+        }
 
-		LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
+        LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
         LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
         LOGGER.info("Token: {}", multicastToken.getAsString());
 
-        // Section 5.2 Steps 5-6 + Section 9.3: Process and decrypt last_notif
         byte[] lastNotifBytes = info.getLastNotifBytes();
         if (lastNotifBytes != null && lastNotifBytes.length > 0) {
-          // Reconstruct a Response from the OSCORE-protected transport-independent bytes
           int notifCode = lastNotifBytes[0] & 0xFF;
           byte[] notifOptionsAndPayload = new byte[lastNotifBytes.length - 1];
           System.arraycopy(lastNotifBytes, 1, notifOptionsAndPayload, 0, notifOptionsAndPayload.length);
@@ -274,44 +275,40 @@ public class OSCOREMulticastObserveClient {
               new DatagramReader(notifOptionsAndPayload),
               lastNotif);
 
-          // Mark as incoming so updateAADForGroup uses the actual OSCORE option
-          // from the wire bytes rather than re-encoding with the wrong context.
-          lastNotif.setSourceContext(new AddressEndpointContext(groupSock));
-
-          // Decrypt with Group OSCORE using phantom request context.
-          // Map the multicast token to the OSCORE context so ResponseDecryptor can find it.
-          try {
-            OscoreOptionDecoder phantomDec = new OscoreOptionDecoder(phantomOscoreOption);
-            byte[] senderKid = phantomDec.getKid();
-            byte[] kidContext = phantomDec.getIdContext();
-            OSCoreCtx recipientCtx = db.getContext(senderKid, kidContext);
-            if (recipientCtx != null) {
-              db.addContext(multicastToken, recipientCtx);
+          if (useOscore) {
+            lastNotif.setSourceContext(new AddressEndpointContext(groupSock));
+            try {
+              OscoreOptionDecoder phantomDec = new OscoreOptionDecoder(phantomOscoreOption);
+              byte[] senderKid = phantomDec.getKid();
+              byte[] kidContext = phantomDec.getIdContext();
+              OSCoreCtx recipientCtx = db.getContext(senderKid, kidContext);
+              if (recipientCtx != null) {
+                db.addContext(multicastToken, recipientCtx);
+              }
+              Response decryptedNotif = ResponseDecryptor.decrypt(db, lastNotif, phantomSeqNr);
+              LOGGER.info("last_notif decrypted - code: {}, payload: {}",
+                  decryptedNotif.getCode(), decryptedNotif.getPayloadString());
+              LOGGER.info("last_notif: \n {}", Utils.prettyPrint(decryptedNotif));
+            } catch (OSException e) {
+              LOGGER.error("Failed to decrypt last_notif: {}", e.getMessage());
             }
-            Response decryptedNotif = ResponseDecryptor.decrypt(db, lastNotif, phantomSeqNr);
-            LOGGER.info("last_notif decrypted - code: {}, payload: {}",
-                decryptedNotif.getCode(), decryptedNotif.getPayloadString());
-            LOGGER.info("last_notif: \n {}", Utils.prettyPrint(decryptedNotif));
-          } catch (OSException e) {
-            LOGGER.error("Failed to decrypt last_notif: {}", e.getMessage());
+          } else {
+            LOGGER.info("last_notif - code: {}, payload: {}", lastNotif.getCode(), lastNotif.getPayloadString());
+            LOGGER.info("last_notif: \n {}", Utils.prettyPrint(lastNotif));
           }
         } else {
           LOGGER.info("No last_notif in informative response");
         }
+
         if (!receiverReady) {
           try {
-  
             LOGGER.info("Setting up multicast receiver...");
             setupMulticastReceiverOnce(groupAddr, groupPort, Configuration.createStandardWithoutFile(), multicastToken);
             LOGGER.info("Multicast receiver activated.");
-            
-            // Create phantom request to register observe relation for multicast token matching.
-            // Uses Bytes.EMPTY for OSCORE option; the phantom values (kid/piv/kid_context)
-            // are stored in the OSCoreCtxDB keyed by this token, so Decryptor can
-            // retrieve them per observation for AAD computation during notification decryption.
+
             Request phantomRequest1 = createPhantomRequest(multicastToken, info.getTpInfo().getTpiServer().toString(), groupAddr, groupPort);
             LOGGER.info("Created PhantomRequest with token: {}", multicastToken);
-            
+
             multicastClient.observe(phantomRequest1, this);
             LOGGER.info("Registered phantom observe relation.");
 
@@ -392,15 +389,14 @@ public class OSCOREMulticastObserveClient {
 
 }
   private static Request createRequest(Code code, String resourceUri) {
-
-      // resourceUri should be like "/oscore/observe2"
-      String serverUri = resourceUri;
-      System.out.println("Connecting to: " + serverUri);
+      System.out.println("Connecting to: " + resourceUri);
 
       Request r = new Request(code);
       r.setConfirmable(true);
-      r.setURI(serverUri);
-      r.getOptions().setOscore(Bytes.EMPTY);
+      r.setURI(resourceUri);
+      if (useOscore) {
+        r.getOptions().setOscore(Bytes.EMPTY);
+      }
       r.setObserve();
 
       // Section 5.1: Observation request MUST NOT have link-local source or destination addresses
@@ -425,7 +421,9 @@ public class OSCOREMulticastObserveClient {
     phantomRequest.setURI(requestedURI);
     phantomRequest.setType(Type.NON);
     phantomRequest.setShouldSend(false);
-    phantomRequest.getOptions().setOscore(Bytes.EMPTY);
+    if (useOscore) {
+      phantomRequest.getOptions().setOscore(Bytes.EMPTY);
+    }
 
     LOGGER.debug("Created phantom request: {}", phantomRequest);
     return phantomRequest;
@@ -487,40 +485,41 @@ public class OSCOREMulticastObserveClient {
     LOGGER.info("Joined group {} on interface {} port {}", groupAddr, ni.getDisplayName(), port);
   }
 
-  public static void main(String requestURI, int sender) {
-		 try {
-			 Configuration config = Configuration.getStandard();
-	      Configuration.setStandard(config);
-			 
-	      LOGGER.debug("Requesting {}", requestURI);
-	      try {
-				  setupOscore(sender, requestURI);
-	      } catch (OSException e) {
-	        e.printStackTrace();
-	        return;
-	      }     
+  public static void main(String requestURI, int sender, boolean useOscore) {
+    useOscore = true;
+    try {
+    	if (useOscore) {
+    		setupOscore(sender, requestURI);
+    	} 
+    }catch (OSException e) {
+		LOGGER.error("Failed to set up OSCORE context", e);
+		return;
+	}
+    run(requestURI);
+  }
 
-	      CoapEndpoint endpoint = new CoapEndpoint.Builder().setConfiguration(config).build();
-	      CoapClient client = new CoapClient();
-	      client.setEndpoint(endpoint);
-	      client.setURI(requestURI);
-	      
-	      Request multicastRequest = createRequest(Code.GET, requestURI);
-	    
-	      
-	      MulticastObserveHandler handler = new MulticastObserveHandler(100);
-	      client.observe(multicastRequest, handler);
-	      
-	      handler.waitForNotifications();
-			
-	      // Deregister observe
-	      //Request deregisterRequest = createRequest(Code.GET, requestURI);
-	      //deregisterRequest.getOptions().setObserve(1); // Observe=1 means cancel
-	      //deregisterRequest.send();
-	      
-	        if (multicastClient != null) multicastClient.shutdown();
-	  } catch (Exception e) {
-	    LOGGER.error("Error in multicast observe client", e);
-	  }
-	  }
+  private static void run(String requestURI) {
+    try {
+      Configuration config = Configuration.getStandard();
+      Configuration.setStandard(config);
+
+      LOGGER.debug("Requesting {}", requestURI);
+
+      CoapEndpoint endpoint = new CoapEndpoint.Builder().setConfiguration(config).build();
+      CoapClient client = new CoapClient();
+      client.setEndpoint(endpoint);
+      client.setURI(requestURI);
+
+      Request multicastRequest = createRequest(Code.GET, requestURI);
+
+      MulticastObserveHandler handler = new MulticastObserveHandler(100);
+      client.observe(multicastRequest, handler);
+
+      handler.waitForNotifications();
+
+      if (multicastClient != null) multicastClient.shutdown();
+    } catch (Exception e) {
+      LOGGER.error("Error in multicast observe client", e);
+    }
+  }
 }
