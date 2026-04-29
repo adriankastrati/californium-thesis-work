@@ -26,7 +26,16 @@ public class AClient {
 
 	public static void main(String[] args) throws IOException, ConnectorException, InterruptedException {
 
-		String uri = "coap://192.168.0.108:5683/";
+		if (args.length < 1) {
+			System.out.println("Usage: AClient <command> [host] [port]");
+			System.out.println("  host defaults to 192.168.0.33");
+			System.out.println("  port defaults to 5683");
+			System.exit(1);
+		}
+
+		String host = args.length >= 2 ? args[1] : "192.168.0.33";
+		int port = args.length >= 3 ? Integer.parseInt(args[2]) : 5683;
+		String uri = "coap://" + host + ":" + port + "/";
 		String uri_get = "get";
 		String[] resource = new String[] { uri + uri_get };
 
@@ -60,7 +69,7 @@ public class AClient {
 				break;
 			case "mult":
 				System.out.println("MULT");
-				MulticastObserveClient.main(uri + "mult", 1000);
+				MulticastObserveClient.main(uri + "mult");
 				break;
 			case "OSCORE-mult-1":
 				System.out.println(uri + "OSCORE-mult");

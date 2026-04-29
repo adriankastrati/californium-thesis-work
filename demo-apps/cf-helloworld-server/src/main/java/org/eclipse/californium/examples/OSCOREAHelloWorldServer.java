@@ -49,8 +49,10 @@ import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.elements.util.ProtocolScheduledExecutorService;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.eclipse.californium.oscore.HashMapCtxDB;
+import org.eclipse.californium.oscore.MulticastObservableResource;
 import org.eclipse.californium.oscore.OSCoreCoapStackFactory;
 import org.eclipse.californium.oscore.OSCoreCtx;
+import org.eclipse.californium.oscore.OSCoreCtxDB;
 import org.eclipse.californium.oscore.OSCoreResource;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.group.GroupCtx;
@@ -209,11 +211,15 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		server.OSCORESetup(address);
 		server.addEndpoint();
 
-		Endpoint endpoint = server.getEndpoint(listenPort);
+		int GRP_PORT = 61616;
+		InetSocketAddress multicastAddress = new InetSocketAddress(CoAP.MULTICAST_IPV4, GRP_PORT);
 
+		Endpoint endpoint = server.getEndpoint(listenPort);
+		
 		//resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
 		resource.add(new ObservableResource(server));
-		resource.add(new OSCOREMulticastObservableResource("OSCORE-mult", true, server.getMessageDeliverer(), db));
+		resource.add(new MulticastObservableResource("OSCORE-mult", true, db, multicastAddress));
+
 		server.start();
 
 		System.out.println("==================");

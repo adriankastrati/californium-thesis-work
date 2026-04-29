@@ -89,16 +89,19 @@ public class ObserveLayer extends AbstractLayer {
 		if (request.getOptions().getObserve() == null || request.getOptions().getObserve() != 0) {
 			return false;
 		}
-
+		
 		if (!groupObservationInfo.isTokenPendingProcess(token)) {
 			return false;
 		}
-
+			
+		
+		
 		// Not OSCORE-protected: verify source address matches the server's own address
 		InetSocketAddress sourceAddress = request.getSourceContext().getPeerAddress();
 		InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
 		LOGGER.debug("Phantom request check: source={}, local={}", sourceAddress, localAddress);
-		return sourceAddress.equals(localAddress);
+		
+		return groupObservationInfo.getMulticastAdressByToken(token).equals(sourceAddress);
 	}
 
 	@Override
@@ -106,7 +109,9 @@ public class ObserveLayer extends AbstractLayer {
 		if (isPhantomRequest(exchange)) {
 			exchange.setPhantomRequest(true);
 			// Redirect source context to multicast address so notifications are sent there
-			InetSocketAddress multicastAddress = GroupObservationsInfo.getInstance().getMulticastAddress();
+			request.getToken();
+			InetSocketAddress multicastAddress = GroupObservationsInfo.getInstance().getMulticastAdressByToken(request.getToken());
+			
 			request.setSourceContext(new org.eclipse.californium.elements.UdpEndpointContext(multicastAddress));
 			exchange.getRequest().setSourceContext(new org.eclipse.californium.elements.UdpEndpointContext(multicastAddress));
 

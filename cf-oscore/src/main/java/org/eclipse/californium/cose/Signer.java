@@ -11,7 +11,6 @@ import com.upokecenter.cbor.CBORType;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.Assert;
 
 /**
  * The Signer class is used to implement the COSE_Signer object.
@@ -198,7 +197,9 @@ public class Signer extends Attribute {
         
         rgbSignature = SignCommon.computeSignature(alg, obj.EncodeToBytes(), cnKey);   
         
-		Assert.assertNotNull("rgbBodyProtected is null!", rgbBodyProtected);
+		if (rgbBodyProtected == null) {
+			throw new IllegalStateException("rgbBodyProtected is null!");
+		}
 
         ProcessCounterSignatures();
     }

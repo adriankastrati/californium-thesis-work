@@ -13,12 +13,15 @@ import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.coap.CoAP.Code;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.coap.CoAP.Type;
+import org.eclipse.californium.core.coap.option.OptionRegistry;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
+import org.eclipse.californium.core.coap.Message;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.coap.Token;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
+import org.eclipse.californium.core.network.serialization.DataParser;
 import org.eclipse.californium.core.network.serialization.UdpDataParser;
 import org.eclipse.californium.core.observe.ObservationInfo;
 import org.eclipse.californium.elements.AddressEndpointContext;
@@ -79,32 +82,33 @@ public class MulticastObserveClient {
 				int groupPort = groupSock.getPort();
 				Token multicastToken = info.getToken();
 
+				byte[] phantomRequestBytes = info.getPhReq();
+				if (phantomRequestBytes != null && phantomRequestBytes.length > 0) {
+					UdpDataParser parser = new UdpDataParser();
+					Message mess = parser.parseMessage(phantomRequestBytes);
+					if (mess instanceof Request) {
+						LOGGER.info("Phantom request parsed successfully: {}", mess);
+					} else {
+						LOGGER.warn("Failed to parse phantom request from informative response");
+					}
+				}
+
 				LOGGER.info("Requested URI: {}", info.getTpInfo().getTpiServer().toString());
 				LOGGER.info("Multicast group: {} : {}", groupAddr, groupPort);
 				LOGGER.info("Token: {}", multicastToken.getAsString());
 
-				// Section 5.2 Step 2-3: Process ph_req if present
-				byte[] phantomRequestBytes = info.getPhReq();
-				if (phantomRequestBytes != null && phantomRequestBytes.length > 0) {
-					LOGGER.info("Received ph_req ({} bytes)", phantomRequestBytes.length);
-				}
-
-				// Section 5.2 Steps 5-6: Process last_notif if present (plaintext)
 				byte[] lastNotifBytes = info.getLastNotifBytes();
 				if (lastNotifBytes != null && lastNotifBytes.length > 0) {
 					int notifCode = lastNotifBytes[0] & 0xFF;
 					byte[] notifOptionsAndPayload = new byte[lastNotifBytes.length - 1];
 					System.arraycopy(lastNotifBytes, 1, notifOptionsAndPayload, 0, notifOptionsAndPayload.length);
-
 					Response lastNotif = new Response(ResponseCode.valueOf(notifCode));
 					lastNotif.setToken(multicastToken);
-					UdpDataParser notifParser = new UdpDataParser();
+					DataParser notifParser = new UdpDataParser(true, (OptionRegistry) null);
 					notifParser.parseOptionsAndPayload(
 							new DatagramReader(notifOptionsAndPayload),
 							lastNotif);
-
-					LOGGER.info("last_notif - code: {}, payload: {}",
-							lastNotif.getCode(), lastNotif.getPayloadString());
+					LOGGER.info("last_notif - code: {}, payload: {}", lastNotif.getCode(), lastNotif.getPayloadString());
 					LOGGER.info("last_notif: \n {}", Utils.prettyPrint(lastNotif));
 				} else {
 					LOGGER.info("No last_notif in informative response");
@@ -127,13 +131,12 @@ public class MulticastObserveClient {
 						LOGGER.error("Failed to activate multicast receiver", e);
 					}
 				} else {
-					LOGGER.info("Multicast receiver already active (ignoring extra informative response).");
+					LOGGER.info("Multicast receiver already active");
 				}
 
 				return;
 			}
 
-			// Section 5.4: Detect cancellation — 5.03 with no payload and no Observe option
 			if (response.getCode() == ResponseCode.SERVICE_UNAVAILABLE
 					&& !response.getOptions().hasObserve()
 					&& (response.getPayload() == null || response.getPayload().length == 0)) {
@@ -149,7 +152,6 @@ public class MulticastObserveClient {
 				return;
 			}
 
-			// Normal notification payload
 			synchronized (this) {
 				notificationCount++;
 				notifyAll();
@@ -163,12 +165,13 @@ public class MulticastObserveClient {
 	}
 
 	private static Request createRequest(Code code, String resourceUri) {
+		System.out.println("Connecting to: " + resourceUri);
+
 		Request r = new Request(code);
 		r.setConfirmable(true);
 		r.setURI(resourceUri);
 		r.setObserve();
 
-		// Section 5.1: Observation request MUST NOT have link-local source or destination addresses
 		InetAddress destAddr = r.getDestinationContext() != null
 				? r.getDestinationContext().getPeerAddress().getAddress() : null;
 		if (destAddr != null && destAddr.isLinkLocalAddress()) {
@@ -180,9 +183,6 @@ public class MulticastObserveClient {
 		return r;
 	}
 
-	/**
-	 * Creates a phantom request to register an observe relation for receiving multicast notifications.
-	 */
 	private static Request createPhantomRequest(Token multicastToken, String requestedURI, InetAddress groupAddr, int groupPort) {
 		Request phantomRequest = Request.newGet();
 		phantomRequest.setToken(multicastToken);
@@ -191,6 +191,7 @@ public class MulticastObserveClient {
 		phantomRequest.setURI(requestedURI);
 		phantomRequest.setType(Type.NON);
 		phantomRequest.setShouldSend(false);
+
 		LOGGER.debug("Created phantom request: {}", phantomRequest);
 		return phantomRequest;
 	}
@@ -250,19 +251,19 @@ public class MulticastObserveClient {
 		LOGGER.info("Joined group {} on interface {} port {}", groupAddr, ni.getDisplayName(), port);
 	}
 
-	public static void main(String requestedURI, int timeout) {
+	public static void main(String requestURI) {
 		try {
 			Configuration config = Configuration.getStandard();
 			Configuration.setStandard(config);
 
-			LOGGER.debug("Requesting {}", requestedURI);
+			LOGGER.debug("Requesting {}", requestURI);
 
 			CoapEndpoint endpoint = new CoapEndpoint.Builder().setConfiguration(config).build();
 			CoapClient client = new CoapClient();
 			client.setEndpoint(endpoint);
-			client.setURI(requestedURI);
+			client.setURI(requestURI);
 
-			Request multicastRequest = createRequest(Code.GET, requestedURI);
+			Request multicastRequest = createRequest(Code.GET, requestURI);
 
 			MulticastObserveHandler handler = new MulticastObserveHandler(100);
 			client.observe(multicastRequest, handler);

@@ -37,6 +37,7 @@ import org.eclipse.californium.elements.util.DaemonThreadFactory;
 import org.eclipse.californium.elements.util.ExecutorsUtil;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import org.eclipse.californium.elements.util.ProtocolScheduledExecutorService;
+import org.eclipse.californium.oscore.MulticastObservableResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -355,7 +355,7 @@ public class OSCOREMulticastObserveClient {
       LOGGER.error("Error receiving multicast notification");
     }
   }
-  private static void setupOscore(int sender) throws OSException {
+  private static void setupOscore(int sender, String contextUri) throws OSException {
 	// Install cryptographic providers
 			Provider EdDSA = new EdDSASecurityProvider();
 			Security.insertProviderAt(EdDSA, 1);
@@ -386,7 +386,7 @@ public class OSCOREMulticastObserveClient {
 
 				commonCtx.addSenderCtxCcs(sender_id, sender_private_key);
 				commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, new MultiKey(server_public_key_bytes));
-				db.addContext("coap://192.168.0.108:5683/OSCORE-mult", commonCtx);
+				db.addContext(contextUri, commonCtx);
 
 				OSCoreCoapStackFactory.useAsDefault(db);				
 
@@ -494,7 +494,7 @@ public class OSCOREMulticastObserveClient {
 			 
 	      LOGGER.debug("Requesting {}", requestURI);
 	      try {
-				  setupOscore(sender);
+				  setupOscore(sender, requestURI);
 	      } catch (OSException e) {
 	        e.printStackTrace();
 	        return;

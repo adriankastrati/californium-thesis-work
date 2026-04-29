@@ -26,7 +26,6 @@ import org.eclipse.californium.elements.util.Bytes;
 
 /**
  * Singleton holding server-side group observation state for resources.
- * <p>
  * Tracks ongoing group observation setups, pending multicast notification
  * tokens, active group observations, and clients awaiting informative responses.
  */
@@ -60,16 +59,31 @@ public class GroupObservationsInfo {
 	private Map<String, AtomicInteger> observerCounters;
 	
 	private static final int GRP_PORT = 61616;
+	
 
-	private volatile InetSocketAddress multicastAddress = new InetSocketAddress(CoAP.MULTICAST_IPV4, GRP_PORT);
+	private Map<Token, InetSocketAddress> multicastAdressByToken;
+	
+	//use argument Token to get multicast adress, change at Observe Layer as well. IfPhantom rewuest should use this to verify if it is phantomrequest
+	public InetSocketAddress getMulticastAdressByToken(Token token) {
+		return multicastAdressByToken.get(token);
+	}
+	
+	public boolean isMulticastAdressByToken(Token token) {
+		return multicastAdressByToken.containsKey(token);
+	}
+	
+	public void setMulticastAdressByToken(Token token, InetSocketAddress multicastAdress) {
+		if (token != null) {
+			multicastAdressByToken.put(token, multicastAdress);
+		}
+	}
+	
+	
 
 	public void incrementObserverCount(String uri) {
 		observerCounters.get(uri).incrementAndGet();
 	}
-	
-	public InetSocketAddress getMulticastAddress() {
-		return multicastAddress;
-	}
+
 
 	public boolean isOngoingGroupObservation(String uri) {
 		return this.ongoingGroupObservations.containsKey(uri);
@@ -88,6 +102,8 @@ public class GroupObservationsInfo {
 		this.ongoingGroupObservations = new ConcurrentHashMap<>();
 		this.pendingClients = new ConcurrentHashMap<>();
 		this.observerCounters = new ConcurrentHashMap<>();
+		this.multicastAdressByToken = new ConcurrentHashMap<>();
+
 
 		this.tokenGenerator = new RandomTokenGenerator(Configuration.createStandardWithoutFile());
 	}
@@ -160,7 +176,7 @@ public class GroupObservationsInfo {
 		}
 		pendingMulticastNotificationTokens.remove(uriPath);
 		ongoingGroupObservations.put(uriPath, info);
-		observerCounters.computeIfAbsent(uriPath, _ -> new AtomicInteger(0));
+		observerCounters.computeIfAbsent(uriPath, k -> new AtomicInteger(0));
 				
 	}
 
@@ -178,7 +194,8 @@ public class GroupObservationsInfo {
 		if (uriPath == null || exchange == null) {
 			return;
 		}
-		pendingClients.computeIfAbsent(uriPath, _ -> new ArrayList<>()).add(exchange);
+	
+		pendingClients.computeIfAbsent(uriPath, k -> new ArrayList<>()).add(exchange);
 	}
 
 	/**
@@ -246,6 +263,7 @@ public class GroupObservationsInfo {
 	 */
 	public Request createPhantomRequest(Resource resource, Token multicastToken,
 			CoapExchange triggeringCoapExchange, boolean hasOscore) {
+		
 		Request phantomRequest = Request.newGet();
 		phantomRequest.setToken(multicastToken);
 		phantomRequest.setObserve();
@@ -257,9 +275,13 @@ public class GroupObservationsInfo {
 
 		InetSocketAddress localAddress = triggeringCoapExchange.advanced().getEndpoint().getAddress();
 		phantomRequest.setDestinationContext(new AddressEndpointContext(localAddress));
-		phantomRequest.setSourceContext(new AddressEndpointContext(localAddress));
+		
+		
+		phantomRequest.setSourceContext(new AddressEndpointContext(getMulticastAdressByToken(multicastToken)));		
+		
 		phantomRequest.setMultiResponse(true);
-
+		phantomRequest.setShouldSend(false);
+		
 		return phantomRequest;
 	}
 }
