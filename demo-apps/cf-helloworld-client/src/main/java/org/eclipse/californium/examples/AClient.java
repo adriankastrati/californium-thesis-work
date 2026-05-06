@@ -45,7 +45,7 @@ public class AClient {
 		switch (args[0]) {
 			case "obs":
 				System.out.println("OBSERVE");
-				ObserveClient.main(uri + "obs", 20);
+				ObserveClient.main(uri + "obs");
 				break;
 			case "get":
 				System.out.println("GET");
@@ -73,15 +73,27 @@ public class AClient {
 				break;
 			case "OSCORE-mult-1":
 				System.out.println(uri + "OSCORE-mult");
-				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 1);
+				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 1, true);
 				break;
 			case "OSCORE-mult-2":
 				System.out.println(uri + "OSCORE-mult");
-				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 2);
+				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 2,true);
 				break;
-			case "OSCORE-obs":
-				System.out.println(uri + "OSCORE-obs");
+			case "OSCORE-mult-3":
+				System.out.println(uri + "OSCORE-mult");
+				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 3, true);
+				break;
+			case "OSCORE-obs-1":
+				System.out.println(uri + "OSCORE-mult");
+				OSCOREObserveClient.main(uri + "obs", 1000, 1);
+				break;
+			case "OSCORE-obs-2":
+				System.out.println(uri + "OSCORE-mult");
 				OSCOREObserveClient.main(uri + "obs", 1000, 2);
+				break;
+			case "OSCORE-obs-3":
+				System.out.println(uri + "OSCORE-mult");
+				OSCOREObserveClient.main(uri + "obs", 1000, 3);
 				break;
 			case "OSCORE-obs-put":
 				System.out.println(uri + "OSCORE-obs-put");

@@ -32,7 +32,10 @@
  ******************************************************************************/
 package org.eclipse.californium.oscore;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -68,6 +71,10 @@ public class MulticastObservableResource extends OSCoreResource {
 	private final boolean isGroupObservable;
 	private final OSCoreCtxDB ctxDb;
 	private final InetSocketAddress multicastAdress;
+
+	private static final int CSV_WRITE_THRESHOLD = 20;
+	private static final String CSV_FILE = "timing_results.csv";
+	private final List<long[]> timingRecords = new ArrayList<>();
 	
 	/**
 	 * OSCORE protected resource
@@ -81,7 +88,7 @@ public class MulticastObservableResource extends OSCoreResource {
 		setObserveType(Type.NON);
 		this.isGroupObservable = groupObservable;
 		this.multicastAdress = multicastAdress;
-		//timer.schedule(new UpdateTask(), 0, 10000);
+		timer.schedule(new UpdateTask(), 0, 10000);
 	}
 	
 	/**
@@ -95,7 +102,7 @@ public class MulticastObservableResource extends OSCoreResource {
 		setObserveType(Type.NON);
 		this.isGroupObservable = groupObservable;
 		this.multicastAdress = multicastAdress;
-		//timer.schedule(new UpdateTask(), 0, 10000);
+		timer.schedule(new UpdateTask(), 10000, 10000);
 	}
 	
 
@@ -173,8 +180,28 @@ public class MulticastObservableResource extends OSCoreResource {
   
 	@Override
 	public void changed() {
+		long serverTime = NtpUtil.now();
+		timingRecords.add(new long[]{ content, serverTime });
+		LOGGER.info("[TIMING] state={} serverTime={}", content, serverTime);
+
+		if (content >= CSV_WRITE_THRESHOLD) {
+			writeTimingCsv();
+		}
+
 		LOGGER.debug("Observer count at change: {}", this.getObserverCount());
 		super.changed();
+	}
+
+	private void writeTimingCsv() {
+		try (FileWriter writer = new FileWriter(CSV_FILE)) {
+			writer.write("state,server_time,client_1,client_2,client_3\n");
+			for (long[] record : timingRecords) {
+				writer.write(record[0] + "," + record[1] + ",,,\n");
+			}
+			LOGGER.info("[TIMING] Wrote {} records to {}", timingRecords.size(), CSV_FILE);
+		} catch (IOException e) {
+			LOGGER.error("[TIMING] Failed to write CSV: {}", e.getMessage());
+		}
 	}
 
 	@Override

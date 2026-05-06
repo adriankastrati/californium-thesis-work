@@ -51,7 +51,7 @@ public class ObserveClient {
 	/**
 	 * Starts an observe relation on the given URI and waits for notifications.
 	 */
-	public static void main(String requestedURI, int timeout) {
+	public static void main(String requestedURI) {
 		try {
 			CoapClient client = new CoapClient(requestedURI);
 

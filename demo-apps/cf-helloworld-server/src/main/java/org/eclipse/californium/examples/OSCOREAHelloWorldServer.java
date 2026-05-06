@@ -17,6 +17,8 @@
  ******************************************************************************/
 package org.eclipse.californium.examples;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -24,6 +26,8 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.security.Provider;
 import java.security.Security;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -50,9 +54,9 @@ import org.eclipse.californium.elements.util.ProtocolScheduledExecutorService;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.eclipse.californium.oscore.HashMapCtxDB;
 import org.eclipse.californium.oscore.MulticastObservableResource;
+import org.eclipse.californium.oscore.NtpUtil;
 import org.eclipse.californium.oscore.OSCoreCoapStackFactory;
 import org.eclipse.californium.oscore.OSCoreCtx;
-import org.eclipse.californium.oscore.OSCoreCtxDB;
 import org.eclipse.californium.oscore.OSCoreResource;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.group.GroupCtx;
@@ -194,6 +198,13 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		    "A501781A636F6170733A2F2F7365727665722E6578616D706C652E636F6D026673656E64657203781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A4010103272006215820105B8C6A8C88019BF0C354592934130BAA8007399CC2AC3BE845884613D5BA2E");
 	private static MultiKey sender_2_public_key;
 
+	
+	private static MultiKey sender_3_public_key;
+	private final static byte[] sender_3_ID = new byte[] { 0x33 };
+
+	private final static byte[] sender_3_public_key_bytes = StringUtil.hex2ByteArray(
+	    "A501781B636F6170733A2F2F73656E646572332E6578616D706C652E636F6D026773656E6465723303781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A401010327200621582027259DED530940E179F7A47BDD6862880A8100B604C3D18449F84B94A0EEB9F3");
+	
 	private final static byte[] group_identifier = new byte[] { 0x44, 0x61, 0x6c }; // GID
 	/* --- OSCORE Security Context information --- */
 
@@ -217,7 +228,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		Endpoint endpoint = server.getEndpoint(listenPort);
 		
 		//resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
-		resource.add(new ObservableResource(server));
+		resource.add(new ObservableResource());
 		resource.add(new MulticastObservableResource("OSCORE-mult", true, db, multicastAddress));
 
 		server.start();
@@ -246,6 +257,8 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		server_public_key = new MultiKey(server_public_key_bytes); 
 		sender_1_public_key = new MultiKey(sender_1_public_key_bytes);
 		sender_2_public_key = new MultiKey(sender_2_public_key_bytes);
+		sender_3_public_key = new MultiKey(sender_3_public_key_bytes);
+
 
 		if (useOSCORE) {
 			byte[] gmPublicKey = gm_public_key_bytes;
@@ -255,6 +268,8 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			commonCtx.addSenderCtxCcs(server_id, server_private_key);
 			commonCtx.addRecipientCtxCcs(sender_1_ID, REPLAY_WINDOW, sender_1_public_key);
 			commonCtx.addRecipientCtxCcs(sender_2_ID, REPLAY_WINDOW, sender_2_public_key);
+			commonCtx.addRecipientCtxCcs(sender_3_ID, REPLAY_WINDOW, sender_3_public_key);
+			
 			// Add server's own ID as recipient for phantom request self-decryption
 			commonCtx.addRecipientCtxCcs(server_id, REPLAY_WINDOW, server_public_key);
 
@@ -272,52 +287,62 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 
 	private static class ObservableResource extends OSCoreResource {
 
-		public String content = "";
-		private boolean firstRequestReceived = false;
+		public Integer content = 1;
 		private Timer timer = new Timer();
-		OSCOREAHelloWorldServer server;
 
-		public ObservableResource(OSCOREAHelloWorldServer server) {
+		private static final int CSV_WRITE_THRESHOLD = 20;
+		private static final String CSV_FILE = "timing_results.csv";
+		private final List<long[]> timingRecords = new ArrayList<>();
+		
+		public ObservableResource() {
 			super("obs", true);
-			this.server = server;
 
 			this.setObservable(true);
 			this.getAttributes().setObservable();
 			getAttributes().setTitle("pub-sub Resource");
 			setObserveType(Type.CON);
 
-			timer.schedule(new UpdateTask(), 0, 10000);
+			timer.schedule(new UpdateTask(), 10000, 10000);
 		}
+		@Override
+		public void changed() {
+			long serverTime = NtpUtil.now();
+			timingRecords.add(new long[]{ content, serverTime });
+
+			if (content >= CSV_WRITE_THRESHOLD) {
+				writeTimingCsv();
+			}
+
+			super.changed();
+		}
+		
+		private void writeTimingCsv() {
+			try (FileWriter writer = new FileWriter(CSV_FILE)) {
+				writer.write("state,server_time,client_1,client_2,client_3\n");
+				for (long[] record : timingRecords) {
+					writer.write(record[0] + "," + record[1] + ",,,\n");
+				}
+			} catch (IOException e) {
+			}
+		}
+
 
 		@Override
 		public void handleGET(CoapExchange exchange) {
-			firstRequestReceived = true;
-			exchange.respond(ResponseCode.CONTENT, this.content);
+			exchange.respond(ResponseCode.CONTENT, this.content.toString());
 		}
 
 		@Override
 		public void removeObserveRelation(ObserveRelation relation) {
 			super.removeObserveRelation(relation);
-		}
-
-		@Override
-		public void handlePUT(CoapExchange exchange) {
-			String requestText = exchange.getRequestText();
-			String old = this.content;
-
-			this.content = requestText;
-			String response_payload = old + " -> " + this.content;
-
-			exchange.respond(ResponseCode.CHANGED, response_payload);
-			changed();
+		
 		}
 
 		class UpdateTask extends TimerTask {
 			@Override
 			public void run() {
-				if (firstRequestReceived) {
-					changed();
-				}
+				content++;
+				changed();
 			}
 		}
 	}

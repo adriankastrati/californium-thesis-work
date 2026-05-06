@@ -1,5 +1,6 @@
 package org.eclipse.californium.examples;
 
+import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -7,6 +8,7 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.security.Provider;
 import java.security.Security;
+import java.util.ArrayList;
 
 import org.eclipse.californium.core.CoapClient;
 import org.eclipse.californium.core.CoapHandler;
@@ -40,6 +42,7 @@ import org.eclipse.californium.oscore.CoapOSException;
 import org.eclipse.californium.oscore.HashMapCtxDB;
 import org.eclipse.californium.oscore.OSCoreCoapStackFactory;
 import org.eclipse.californium.oscore.OSCoreCtx;
+import org.eclipse.californium.oscore.NtpUtil;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.OscoreOptionDecoder;
 import org.eclipse.californium.oscore.PhantomRequestValues;
@@ -104,6 +107,14 @@ public class OSCOREMulticastObserveClient {
       (byte) 0xBD, 0x47, (byte) 0xCC, 0x7E, (byte) 0x9F, (byte) 0xAF, 0x41, (byte) 0xCB, 0x66, 0x36,
       (byte) 0x9D, 0x5C, (byte) 0x85, 0x08, (byte) 0xB2, 0x39 
     };
+  
+  private final static byte[] sender_3_ID = new byte[] { 0x33 };
+
+  private final static byte[] sender_3_public_key_bytes = StringUtil.hex2ByteArray(
+      "A501781B636F6170733A2F2F73656E646572332E6578616D706C652E636F6D026773656E6465723303781A636F6170733A2F2F636C69656E742E6578616D706C652E6F7267041A70004B4F08A101A401010327200621582027259DED530940E179F7A47BDD6862880A8100B604C3D18449F84B94A0EEB9F3");
+
+  private static byte[] sender_3_private_key_bytes = new byte[] { (byte) 0xD0, (byte) 0x6C, (byte) 0x49, (byte) 0x70, (byte) 0x2E, (byte) 0x7F, (byte) 0x58, (byte) 0xD2, (byte) 0x21, (byte) 0x1B, (byte) 0xD2, (byte) 0x3F, (byte) 0x70, (byte) 0x9A, (byte) 0xA4, (byte) 0x16, (byte) 0x55, (byte) 0x19, (byte) 0x5B, (byte) 0x8D, (byte) 0x48, (byte) 0xEC, (byte) 0xB0, (byte) 0xA5, (byte) 0x10, (byte) 0xAC, (byte) 0x44, (byte) 0x81, (byte) 0xC7, (byte) 0x83, (byte) 0x19, (byte) 0x5B };
+
 
 
 
@@ -122,11 +133,14 @@ public class OSCOREMulticastObserveClient {
   private static CoapClient multicastClient;
   private static boolean receiverReady = false;
   private static boolean useOscore = false;
+  private static int clientId = 1;
 
   private static class MulticastObserveHandler implements CoapHandler {
 
+    private static final int CSV_WRITE_THRESHOLD = 20;
     private int notificationCount = 0;
     private final int targetCount;
+    private final java.util.List<long[]> timingRecords = new ArrayList<>();
 
     public MulticastObserveHandler(int targetCount) {
       this.targetCount = targetCount;
@@ -340,9 +354,35 @@ public class OSCOREMulticastObserveClient {
       }
 
       // Otherwise it's a normal notification payload
+      long clientTime = NtpUtil.now();
+      try {
+        int state = Integer.parseInt(response.getResponseText().trim());
+        timingRecords.add(new long[]{ state, clientTime });
+        LOGGER.info("[TIMING] client_{}  state={} clientTime={}", clientId, state, clientTime);
+
+        if (state >= CSV_WRITE_THRESHOLD) {
+          writeTimingCsv();
+        }
+      } catch (NumberFormatException e) {
+        LOGGER.warn("[TIMING] Could not parse state from payload: {}", response.getResponseText());
+      }
+
       synchronized (this) {
         notificationCount++;
         notifyAll();
+      }
+    }
+
+    private void writeTimingCsv() {
+      String fileName = "timing_client_" + clientId + ".csv";
+      try (FileWriter writer = new FileWriter(fileName)) {
+        writer.write("state,client_" + clientId + "\n");
+        for (long[] record : timingRecords) {
+          writer.write(record[0] + "," + record[1] + "\n");
+        }
+        LOGGER.info("[TIMING] Wrote {} records to {}", timingRecords.size(), fileName);
+      } catch (IOException e) {
+        LOGGER.error("[TIMING] Failed to write CSV: {}", e.getMessage());
       }
     }
 
@@ -370,6 +410,10 @@ public class OSCOREMulticastObserveClient {
 	        case 2: // sender_2 identity (0x77)
 	            sender_id = sender_2_ID;
 	            sender_private_key = new MultiKey(sender_2_public_key_bytes, sender_2_private_key_bytes);
+	            break;
+	        case 3: // sender_2 identity (0x33)
+	            sender_id = sender_3_ID;
+	            sender_private_key = new MultiKey(sender_3_public_key_bytes, sender_3_private_key_bytes);
 	            break;
 	        default:
 	            throw new IllegalArgumentException("Unknown sender ID: " + sender);
@@ -486,6 +530,8 @@ public class OSCOREMulticastObserveClient {
   }
 
   public static void main(String requestURI, int sender, boolean useOscore) {
+    clientId = sender;
+    NtpUtil.initialize();
     useOscore = true;
     try {
     	if (useOscore) {
