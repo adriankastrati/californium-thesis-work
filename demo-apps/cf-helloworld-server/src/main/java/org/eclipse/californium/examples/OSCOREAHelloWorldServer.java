@@ -91,15 +91,8 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			// is bound to the correct network interface for outgoing multicast.
 			UdpMulticastConnector.Builder mcBuilder = new UdpMulticastConnector.Builder()
 					.setLocalAddress(multicastIP, GRP_PORT)
-					.addMulticastGroup(multicastIP, networkInterface)
 					.setMulticastReceiver(true);
 			UdpMulticastConnector multicastConnector = mcBuilder.build();
-			multicastConnector.setLoopbackMode(true);
-			try {
-				multicastConnector.start();
-			} catch (Exception e) {
-				System.err.println("Failed to start multicast connector: " + e.getMessage());
-			}
 			udpConnector.addMulticastReceiver(multicastConnector);
 
 			CoapEndpoint coapEndpoint = new CoapEndpoint.Builder()
@@ -230,6 +223,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		//resource.add(new MulticastObservableResource("mult", true, server.getMessageDeliverer()));
 		resource.add(new ObservableResource());
 		resource.add(new MulticastObservableResource("OSCORE-mult", true, db, multicastAddress));
+		//resource.add(new MulticastObservableResource("OSCORE-mult", true, multicastAddress));
 
 		server.start();
 

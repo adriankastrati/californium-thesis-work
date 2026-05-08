@@ -74,6 +74,7 @@
 package org.eclipse.californium.core.network;
 
 import java.io.IOException;
+import java.net.DatagramPacket;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -135,6 +136,7 @@ import org.eclipse.californium.elements.UDPConnector;
 import org.eclipse.californium.elements.UdpMulticastConnector;
 import org.eclipse.californium.elements.auth.ApplicationAuthorizer;
 import org.eclipse.californium.elements.config.Configuration;
+import org.eclipse.californium.elements.util.Bytes;
 import org.eclipse.californium.elements.util.ClockUtil;
 import org.eclipse.californium.elements.util.DaemonThreadFactory;
 import org.eclipse.californium.elements.util.ExecutorsUtil;
@@ -971,16 +973,25 @@ public class CoapEndpoint implements Endpoint, Executor {
 				// functionality in the Matcher
 				exchange.executeComplete();
 
-			} else if (!request.getShouldSend()) {
+			} else if (request.getServerInjection()) {
 				// Phantom request for multicast observe: registered but not sent on the wire
 				LOGGER.debug("Phantom request registered but not sent: {}", request);
-				EndpointContext context = request.getDestinationContext();
-				if (context != null) {
-					exchange.setEndpointContext(context);
-				}
-				if (exchange.getFailedTransmissionCount() == 0) {
-					exchange.startTransmissionRtt();
-				}
+				
+				InetSocketAddress destinationAddress = request.getDestinationContext().getPeerAddress();
+				DatagramPacket datagram = new DatagramPacket(Bytes.EMPTY, 0);
+				RawData message = serializer.serializeRequest(request);
+				
+				datagram.setData(message.getBytes());
+				datagram.setSocketAddress(destinationAddress);
+							
+				connector.processDatagram(datagram);
+				return; 
+			}else if(request.getClientInjection()){
+				exchange.startTransmissionRtt();
+				exchange.setSendNanoTimestamp(System.nanoTime());
+				exchange.setEndpointContext(request.getDestinationContext());
+				return;
+				
 			} else {
 				if (exchange.getFailedTransmissionCount() == 0) {
 					exchange.startTransmissionRtt();

@@ -195,7 +195,8 @@ public class OSCOREMulticastObserveClient {
       LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
 
       if (response.getOptions().isContentFormat(MediaTypeRegistry.APPLICATION_INFORMATIVE_RESPONSE_CBOR)) {
-        LOGGER.info("Got APPLICATION_INFORMATIVE_RESPONSE_CBOR (ObservationInfo)");
+        response.advanced().cancel();
+    	LOGGER.info("Got APPLICATION_INFORMATIVE_RESPONSE_CBOR (ObservationInfo)");
         ObservationInfo info = ObservationInfo.fromCbor(response.getPayload());
 
         InetSocketAddress groupSock = info.getTpInfo().getTpiClient().toSocketAddress();
@@ -438,9 +439,9 @@ public class OSCOREMulticastObserveClient {
       Request r = new Request(code);
       r.setConfirmable(true);
       r.setURI(resourceUri);
-      if (useOscore) {
-        r.getOptions().setOscore(Bytes.EMPTY);
-      }
+      //if (useOscore) {
+        //r.getOptions().setOscore(Bytes.EMPTY);
+      //}
       r.setObserve();
 
       // Section 5.1: Observation request MUST NOT have link-local source or destination addresses
@@ -464,7 +465,8 @@ public class OSCOREMulticastObserveClient {
     phantomRequest.setDestinationContext(new AddressEndpointContext(new InetSocketAddress(groupAddr, groupPort)));
     phantomRequest.setURI(requestedURI);
     phantomRequest.setType(Type.NON);
-    phantomRequest.setShouldSend(false);
+	phantomRequest.setClientInjection(true);
+
     if (useOscore) {
       phantomRequest.getOptions().setOscore(Bytes.EMPTY);
     }
@@ -529,10 +531,10 @@ public class OSCOREMulticastObserveClient {
     LOGGER.info("Joined group {} on interface {} port {}", groupAddr, ni.getDisplayName(), port);
   }
 
-  public static void main(String requestURI, int sender, boolean useOscore) {
+  public static void main(String requestURI, int sender, boolean useOscoreParam) {
     clientId = sender;
     NtpUtil.initialize();
-    useOscore = true;
+    useOscore = useOscoreParam;
     try {
     	if (useOscore) {
     		setupOscore(sender, requestURI);

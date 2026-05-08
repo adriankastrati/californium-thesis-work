@@ -251,7 +251,9 @@ public class ObjectSecurityLayer extends AbstractLayer {
 			byte[] requestHash = req.getOptions().getRequestHash();
 			exchange.getRequest().getOptions().setRequestHash(requestHash);
 		}
-		req.setShouldSend(request.getShouldSend());
+		req.setClientInjection(request.getClientInjection());
+		req.setServerInjection(request.getServerInjection());
+		
 		super.sendRequest(exchange, req);
 		
 	}

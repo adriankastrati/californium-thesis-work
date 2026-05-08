@@ -163,7 +163,7 @@ public class OSCOREObserveClient {
 		phantomRequest.setDestinationContext(new AddressEndpointContext(new InetSocketAddress(groupAddr, groupPort)));
 		phantomRequest.setURI(requestedURI);
 		phantomRequest.setType(Type.NON);
-		phantomRequest.setShouldSend(false);
+		phantomRequest.setClientInjection(true);
 		phantomRequest.getOptions().setOscore(Bytes.EMPTY);
 		LOGGER.debug("Created phantom request: {}", phantomRequest);
 		return phantomRequest;

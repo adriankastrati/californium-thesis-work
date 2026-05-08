@@ -101,7 +101,7 @@ public class ObserveLayer extends AbstractLayer {
 		InetSocketAddress localAddress = exchange.getEndpoint().getAddress();
 		LOGGER.debug("Phantom request check: source={}, local={}", sourceAddress, localAddress);
 		
-		return groupObservationInfo.getMulticastAdressByToken(token).equals(sourceAddress);
+		return localAddress.equals(sourceAddress);
 	}
 
 	@Override

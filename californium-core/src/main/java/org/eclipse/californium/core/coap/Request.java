@@ -201,16 +201,28 @@ public class Request extends Message {
 	 * Set to {@code false} for phantom requests that are only registered
 	 * locally but not transmitted.
 	 */
-	private boolean shouldSend = true;
-
+	
 	public boolean getShouldSend() {
-		return shouldSend;
+		return !serverInjection && !clientInjection;
+	}
+	
+	private boolean serverInjection = false;
+	public boolean getServerInjection() {
+		return serverInjection;
+	}
+	public void setServerInjection(boolean b) {
+		serverInjection = b;
 	}
 
-	public void setShouldSend(boolean b) {
-		shouldSend = b;
+	private boolean clientInjection = false;
+	public boolean getClientInjection() {
+		return clientInjection;
+	}
+	public void setClientInjection(boolean b) {
+		clientInjection = b;
 	}
 
+	
 	/**
 	 * Request's scheme.
 	 * 

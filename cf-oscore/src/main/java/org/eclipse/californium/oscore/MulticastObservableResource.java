@@ -249,10 +249,8 @@ public class MulticastObservableResource extends OSCoreResource {
 		Token exchangeToken = exchange.advanced().getRequest().getToken();
 		Token pendingToken = groupObservationsInfo.getPendingToken(uriPath);
 
-		// not a ongoing group observation
-		if (pendingToken == null || !pendingToken.equals(exchangeToken)) {
-			return;
-		}
+		// a pending group observation
+		if (exchangeToken.equals(pendingToken)) {
 			// First phantom request — establish the group observation
 			exchange.advanced().setSuppressResponse(true);
 
@@ -313,8 +311,11 @@ public class MulticastObservableResource extends OSCoreResource {
 				observationInfo.setLastNotif(initNotif);
 			}
 			sendInformativeResponsesToClients(uriPath);
+		}else {
+			handlePhantomGET(exchange);
+		}
 	}
-	private void cancelObservation(CoapExchange exchange) {
+	private void handlePhantomGET(CoapExchange exchange) {
 		String uriPath = this.getURI();
 		
 		GroupObservationsInfo groupObservationsInfo = GroupObservationsInfo.getInstance();
@@ -335,15 +336,16 @@ public class MulticastObservableResource extends OSCoreResource {
 
 		// Encrypt last_notif with Group OSCORE before storing (Section 9.2)
 		ObservationInfo observationInfo = groupObservationsInfo.getGroupObservationInfo(uriPath);
-		if (observationInfo != null) {
+		if (ctxDb != null) {
 			byte[] encryptedLastNotif = encryptNotificationForLastNotif(notification, observationInfo);
 			if (encryptedLastNotif != null) {
 				observationInfo.setLastNotifBytes(encryptedLastNotif);
 			} else {
 				observationInfo.setLastNotif(notification);
 			}
+		}else {
+			observationInfo.setLastNotif(notification);
 		}
-
 		exchange.respond(notification);
 	}
 	

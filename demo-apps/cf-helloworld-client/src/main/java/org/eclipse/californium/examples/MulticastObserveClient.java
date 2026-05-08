@@ -190,7 +190,7 @@ public class MulticastObserveClient {
 		phantomRequest.setDestinationContext(new AddressEndpointContext(new InetSocketAddress(groupAddr, groupPort)));
 		phantomRequest.setURI(requestedURI);
 		phantomRequest.setType(Type.NON);
-		phantomRequest.setShouldSend(false);
+		phantomRequest.setClientInjection(true);
 
 		LOGGER.debug("Created phantom request: {}", phantomRequest);
 		return phantomRequest;

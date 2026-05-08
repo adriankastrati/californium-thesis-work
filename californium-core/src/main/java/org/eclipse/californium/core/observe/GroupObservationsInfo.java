@@ -280,7 +280,7 @@ public class GroupObservationsInfo {
 		phantomRequest.setSourceContext(new AddressEndpointContext(getMulticastAdressByToken(multicastToken)));		
 		
 		phantomRequest.setMultiResponse(true);
-		phantomRequest.setShouldSend(false);
+		phantomRequest.setServerInjection(true);
 		
 		return phantomRequest;
 	}
