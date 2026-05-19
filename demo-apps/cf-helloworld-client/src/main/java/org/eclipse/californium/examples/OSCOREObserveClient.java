@@ -1,5 +1,6 @@
 package org.eclipse.californium.examples;
 
+import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -27,11 +28,13 @@ import org.eclipse.californium.elements.config.UdpConfig;
 import org.eclipse.californium.elements.util.NetworkInterfacesUtil;
 import java.security.Provider;
 import java.security.Security;
+import java.util.ArrayList;
 
 import org.eclipse.californium.cose.AlgorithmID;
 import org.eclipse.californium.elements.util.Bytes;
 import org.eclipse.californium.elements.util.StringUtil;
 import org.eclipse.californium.oscore.HashMapCtxDB;
+import org.eclipse.californium.oscore.NtpUtil;
 import org.eclipse.californium.oscore.OSCoreCoapStackFactory;
 import org.eclipse.californium.oscore.OSException;
 import org.eclipse.californium.oscore.group.GroupCtx;
@@ -117,11 +120,14 @@ public class OSCOREObserveClient {
 	private static CoapEndpoint endpoint;
 	private static CoapClient multicastClient;
 	private static boolean receiverReady = false;
+	private static int clientId = 1;
 
 	private static class ObserveHandler implements CoapHandler {
 
+		private static final int CSV_WRITE_THRESHOLD = 20;
 		private int notificationCount = 0;
 		private final int targetCount;
+		private final java.util.List<long[]> timingRecords = new ArrayList<>();
 
 		public ObserveHandler(int targetCount) {
 			this.targetCount = targetCount;
@@ -141,9 +147,36 @@ public class OSCOREObserveClient {
 		@Override
 		public void onLoad(CoapResponse response) {
 			LOGGER.info("onLoad(): \n {}", Utils.prettyPrint(response));
+
+			long clientTime = NtpUtil.now();
+			try {
+				int state = Integer.parseInt(response.getResponseText().trim());
+				timingRecords.add(new long[]{ state, clientTime });
+				LOGGER.info("[TIMING] client_{}  state={} clientTime={}", clientId, state, clientTime);
+
+				if (state >= CSV_WRITE_THRESHOLD) {
+					writeTimingCsv();
+				}
+			} catch (NumberFormatException e) {
+				LOGGER.warn("[TIMING] Could not parse state from payload: {}", response.getResponseText());
+			}
+
 			synchronized (this) {
 				notificationCount++;
 				notifyAll();
+			}
+		}
+
+		private void writeTimingCsv() {
+			String fileName = "timing_client_" + clientId + ".csv";
+			try (FileWriter writer = new FileWriter(fileName)) {
+				writer.write("state,client_" + clientId + "\n");
+				for (long[] record : timingRecords) {
+					writer.write(record[0] + "," + record[1] + "\n");
+				}
+				LOGGER.info("[TIMING] Wrote {} records to {}", timingRecords.size(), fileName);
+			} catch (IOException e) {
+				LOGGER.error("[TIMING] Failed to write CSV: {}", e.getMessage());
 			}
 		}
 
@@ -223,6 +256,8 @@ public class OSCOREObserveClient {
 	}
 
 	public static void main(String requestURI, int timeout, int sender) {
+		clientId = sender;
+		NtpUtil.initialize();
 		try {
 			Configuration config = Configuration.getStandard();
 			Configuration.setStandard(config);
@@ -242,7 +277,7 @@ public class OSCOREObserveClient {
 
 			Request multicastRequest = createRequest(Code.GET, requestURI);
 
-			ObserveHandler handler = new ObserveHandler(4);
+			ObserveHandler handler = new ObserveHandler(40);
 			CoapObserveRelation relation = client.observe(multicastRequest, handler);
 
 			handler.waitForNotifications();

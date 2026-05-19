@@ -80,19 +80,19 @@ public class AClient {
 				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 2,true);
 				break;
 			case "OSCORE-mult-3":
-				System.out.println(uri + "OSCORE-mult");
+				System.out.println(uri + "OSCORE-obs");
 				OSCOREMulticastObserveClient.main(uri + "OSCORE-mult", 3, true);
 				break;
 			case "OSCORE-obs-1":
-				System.out.println(uri + "OSCORE-mult");
+				System.out.println(uri + "OSCORE-obs");
 				OSCOREObserveClient.main(uri + "obs", 1000, 1);
 				break;
 			case "OSCORE-obs-2":
-				System.out.println(uri + "OSCORE-mult");
+				System.out.println(uri + "OSCORE-obs");
 				OSCOREObserveClient.main(uri + "obs", 1000, 2);
 				break;
 			case "OSCORE-obs-3":
-				System.out.println(uri + "OSCORE-mult");
+				System.out.println(uri + "OSCORE-obs");
 				OSCOREObserveClient.main(uri + "obs", 1000, 3);
 				break;
 			case "OSCORE-obs-put":

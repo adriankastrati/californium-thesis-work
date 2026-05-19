@@ -64,7 +64,7 @@ public class MulticastObservableResource extends OSCoreResource {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(MulticastObservableResource.class);
 
-	private volatile Integer content = 1;
+	private volatile Integer content = 0;
 	private Timer timer = new Timer();
 	private volatile boolean cancelling = false;
 
@@ -88,7 +88,7 @@ public class MulticastObservableResource extends OSCoreResource {
 		setObserveType(Type.NON);
 		this.isGroupObservable = groupObservable;
 		this.multicastAdress = multicastAdress;
-		timer.schedule(new UpdateTask(), 0, 10000);
+		timer.schedule(new UpdateTask(), 20000, 2000);
 	}
 	
 	/**

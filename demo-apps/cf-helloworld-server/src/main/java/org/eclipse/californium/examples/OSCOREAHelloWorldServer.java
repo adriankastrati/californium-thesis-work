@@ -284,7 +284,7 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 		public Integer content = 1;
 		private Timer timer = new Timer();
 
-		private static final int CSV_WRITE_THRESHOLD = 20;
+		private static final int CSV_WRITE_THRESHOLD = 36;
 		private static final String CSV_FILE = "timing_results.csv";
 		private final List<long[]> timingRecords = new ArrayList<>();
 		
@@ -294,9 +294,9 @@ public class OSCOREAHelloWorldServer extends CoapServer {
 			this.setObservable(true);
 			this.getAttributes().setObservable();
 			getAttributes().setTitle("pub-sub Resource");
-			setObserveType(Type.CON);
+			setObserveType(Type.NON);
 
-			timer.schedule(new UpdateTask(), 10000, 10000);
+			timer.schedule(new UpdateTask(), 20000, 3000);
 		}
 		@Override
 		public void changed() {
