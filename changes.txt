@@ -1,0 +1,575 @@
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/coap/MediaTypeRegistry.java ===
+Status: Modified
+
+Summary:
+Registers the new content format for informative response payloads.
+
+Changes:
+- Added constant APPLICATION_INFORMATIVE_RESPONSE_CBOR = 12
+- Registered it as a non-printable media type "application/informative-response+cbor"
+
+Reasoning:
+RFC Section 4.2 requires the informative response payload to use a specific
+content format. Content-Format 12 is used to identify the CBOR-encoded
+informative response payload.
+
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/coap/Message.java ===
+Status: Modified
+
+Summary:
+Adds phantom request tracking to Message and relaxes the multicast address
+restriction for responses.
+
+Changes:
+- Added boolean field isPhantomRequest with getter/setter
+- Removed the check that threw IllegalArgumentException when setting a
+  multicast destination on a non-request message (Response)
+
+Reasoning:
+Per the RFC, multicast notifications are CoAP responses sent to a multicast
+group address. The original Californium code only allowed multicast
+destinations on requests. The phantom request flag propagates through the
+stack so layers can apply special handling.
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/coap/Request.java ===
+Status: Modified
+
+Summary:
+Adds injection control flags for phantom requests so the CoAP stack can
+distinguish requests that should be registered but not actually transmitted.
+
+Changes:
+- Added getShouldSend() — returns false when either serverInjection or
+  clientInjection is true
+- Added serverInjection flag with getter/setter — for server-side phantom
+  requests that are self-injected
+- Added clientInjection flag with getter/setter — for client-side phantom
+  requests registered locally without transmission
+- Minor whitespace Changes
+
+Reasoning:
+RFC Section 4.1 defines a phantom request as generated inside the server
+(never hits the wire). The server needs to inject it into its own processing
+pipeline. Similarly, the client needs to register an observe relation for the
+multicast token without actually sending a request.
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/network/CoapEndpoint.java ===
+Status: Modified
+
+Summary:
+Major Changes to support phantom request injection and multicast notification
+reception.
+
+Changes:
+- Added imports for DatagramPacket and Bytes
+- Added injectIncomingRequest() method: injects a request into the incoming
+  pipeline as if it arrived from the network
+- Added handling for serverInjection in OutboxImpl.sendRequest(): serializes
+  the phantom request and feeds it through connector.processDatagram() instead
+  of sending over the wire
+- Added handling for clientInjection in OutboxImpl.sendRequest(): sets up the
+  exchange metadata without transmitting
+- Modified multicast response handling in InboxImpl: instead of silently
+  ignoring all multicast responses, now checks if the response token matches
+  an observed token in the observation store and processes it if so
+- Added debug logging for response destinations
+
+Reasoning:
+1. Server-side: phantom requests must enter the CoAP stack as if received
+   from the network so that ObserveLayer establishes a proper observe relation.
+2. Client-side: phantom requests must register an exchange without transmitting.
+3. Multicast responses carrying observed tokens must be delivered to the
+   application instead of being dropped.
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/network/Endpoint.java ===
+Status: Modified
+
+Summary:
+Adds the injectIncomingRequest() method to the Endpoint interface with a
+default implementation that throws UnsupportedOperationException.
+
+Changes:
+- Added default method injectIncomingRequest(Request) with Javadoc
+
+Reasoning:
+Defines the contract for phantom request injection at the interface level so
+any Endpoint implementation can support it.
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/network/Exchange.java ===
+Status: Modified
+
+Summary:
+Adds several fields and methods to Exchange for phantom request and multicast
+notification support.
+
+Changes:
+- Added phantomRequest boolean with getter/setter
+- Added protectedRequest byte[] — stores OSCORE-encrypted bytes of the phantom
+  request for inclusion as ph_req in informative responses
+- Added suppressResponse boolean — suppresses the initial response to a phantom
+  request during group observation setup
+- Added skipResponseProtection boolean — tells OSCORE layer to skip protection
+  for responses during setup
+- Added setRelationForPhantom() — sets observe relation without executor
+  ownership check
+- Refactored setRelation() to delegate to setRelationInternal()
+
+Reasoning:
+During group observation setup, the server must suppress the initial response
+to the phantom request (it's internal, not for a real client). The protected
+request bytes are needed for the ph_req field in informative responses. The
+executor-bypass method is needed because phantom exChanges are delivered from
+a different executor context.
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/network/stack/BlockwiseLayer.java ===
+Status: Modified
+
+Summary:
+Adds imports for group observation classes and suppresses the initial phantom
+request response during group observation setup.
+
+Changes:
+- Added imports for GroupObservationsInfo and ObservationInfo
+- Added comment about letting requests through even if shouldSend=false
+- Added check in sendResponse: if exchange.isSuppressResponse() and the
+  request is not OSCORE-protected, suppress the response and return
+
+Reasoning:
+The phantom request creates an exchange whose initial response must be
+suppressed (it's not for any real client). OSCORE-protected responses must
+pass through so the OSCORE layer can store last_notif state.
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/network/stack/ObserveLayer.java ===
+Status: Modified
+
+Summary:
+Implements phantom request detection and multicast notification routing.
+
+Changes:
+- Added imports for InetSocketAddress, List, CoapExchange, Token, etc.
+- Added isPhantomRequest() method that checks: Observe=0, token is pending,
+  source address matches local address
+- Added receiveRequest() override: detects phantom requests, marks exchange,
+  redirects source context to multicast address, completes previous unicast
+  observe relations
+- Added suppress logic in sendResponse() for phantom responses
+- Added multicast routing in sendResponse(): if notification + phantom
+  exchange, sets destination to the multicast group address
+
+Reasoning:
+This is the core ObserveLayer integration:
+- Detecting phantom requests allows the layer to set up the multicast
+  observation relation
+- Redirecting source context to the multicast address ensures all subsequent
+  notifications for this observe relation go to the multicast group
+- Completing previous unicast relations prevents duplicate notifications
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/observe/GroupObservationsInfo.java ===
+Status: Created
+
+Summary:
+New singleton class managing all server-side group observation state.
+
+Changes:
+- Tracks ongoing group observation setup progress per resource URI
+- Manages pending multicast notification tokens (allocated but not yet active)
+- Tracks active group observations (ObservationInfo per resource)
+- Manages pending client exChanges awaiting informative responses
+- Manages observer counters per resource
+- Maps tokens to multicast addresses
+- Provides createPhantomRequest() factory method
+- Provides allocateMulticastToken() with collision avoidance
+- Token generation via RandomTokenGenerator
+
+Reasoning:
+Central state management is needed for the server to coordinate group
+observation setup across multiple client requests and phantom request
+processing. This implements the server-side state machine from RFC Section 4.
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/observe/ObservationInfo.java ===
+Status: Created
+
+Summary:
+New class representing the informative response payload (5.03 Service
+Unavailable) as defined in the RFC.
+
+Changes:
+- Implements the CBOR map structure: tp_info (key 0), ph_req (key 1),
+  last_notif (key 2), next_not_before (key 3), ending (key 4)
+- Contains TpInfo inner class with CRI (Constrained Resource Identifier)
+  serialization for server and multicast addresses
+- Contains Cri inner class implementing CRI per RFC 9290
+- Provides toCbor() and fromCbor() for serialization/deserialization
+- Validates addresses are not link-local or site-local per Section 4.2
+- Includes serializeTransportIndependent() for Section 4.2.2 format
+- Includes extractTransportIndependent() for parsing wire-format messages
+
+Reasoning:
+Implements the informative response payload format defined in RFC Section 11.
+The server builds this when sending 5.03 informative responses, and the client
+parses it to learn multicast group parameters, token, and optional cached
+notification state.
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/observe/ObserveRelation.java ===
+Status: Modified
+
+Summary:
+Uses setRelationForPhantom() for phantom exChanges to bypass executor
+ownership check.
+
+Changes:
+- Added conditional: if exchange.isPhantomRequest(), call
+  setRelationForPhantom(); otherwise call setRelation()
+
+Reasoning:
+Phantom exChanges are delivered from a different executor context than the
+one that owns the exchange, causing the assertOwner() check to fail. The
+bypass allows the relation to be established.
+
+Notes:
+- This is a thread-safety workaround. The underlying issue is that phantom
+  requests cross executor boundaries.
+
+
+=== FILE: californium-core/src/main/java/org/eclipse/californium/core/server/ServerMessageDeliverer.java ===
+Status: Modified
+
+Summary:
+Adds phantom request handling in the observe registration path.
+
+Changes:
+- Added import for GroupObservationsInfo
+- Refactored checkForObserveOption(): phantom requests get observe relation
+  added with suppressResponse=true; regular requests follow the existing path
+- Removed redundant comments
+- Minor logging format adjustments
+
+Reasoning:
+When a phantom request arrives, it must establish an observe relation (so
+subsequent resource Changes trigger multicast notifications) but the initial
+response must be suppressed (no real client to send to).
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/cose/EncryptCommon.java ===
+Status: Modified
+
+Summary:
+Removes junit Assert dependency from code.
+
+Reasoning:
+Production code should not depend on JUnit. The assertion was a leftover
+from development/testing. Could not compile code in eclipse.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/cose/Signer.java ===
+Status: Modified
+
+Summary:
+Replaces JUnit Assert with proper runtime check.
+
+Changes:
+- Removed import of org.junit.Assert
+- Replaced Assert.assertNotNull with explicit null check that throws
+  IllegalStateException
+
+Reasoning:
+Same as EncryptCommon, removing test dependency from production code. Here
+the check is properly replaced with a runtime exception.
+
+Risks / Notes:
+- None. This is the correct fix pattern.
+
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/Decryptor.java ===
+Status: Modified
+
+Summary:
+Adds phantom request support to OSCORE decryption and replaces
+System.out.println with LOGGER.debug throughout.
+
+Changes:
+- Added phantomValues parameter to decryptAndDecode()
+- For responses: uses phantom request PIV instead of original request sequence
+  when phantomValues is available
+- For responses: uses phantom request KID in the AAD when available
+- Skips replay check for phantom requests (they are self-generated)
+- Uses pairwise sender key for phantom requests (server encrypted with its own
+  sender key)
+- Replaced ~30+ System.out.println calls with LOGGER.debug
+- Verifies countersignature for phantom requests per RFC Section 9.3.1
+
+Reasoning:
+When a client receives a multicast notification protected with Group OSCORE,
+it must reconstruct the AAD using the phantom request's KID and PIV (not the
+original observe request). The server's sender key is used because the server
+encrypted the notification. Logging cleanup improves production readiness.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/Encryptor.java ===
+Status: Modified
+
+Summary:
+Replaces System.out.println with LOGGER.debug throughout the encryption path.
+
+Changes:
+- Replaced System.out.println calls with LOGGER.debug
+- Minor whitespace and formatting Changes
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/HashMapCtxDB.java ===
+Status: Modified
+
+Summary:
+Adds phantom request values storage to the OSCORE context database.
+
+Changes:
+- Added HashMap<Token, PhantomRequestValues> phantomRequestMap
+- Added addPhantomRequestValues(), getPhantomRequestValues(),
+  removePhantomRequestValues() methods
+- phantomRequestMap is cleared in purge() and entries removed in removeToken()
+
+Reasoning:
+Clients need to store the phantom request's OSCORE header values (kid, piv,
+kid context) indexed by the multicast observation token, so they can
+reconstruct the AAD when decrypting multicast notifications.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/MulticastObservableResource.java ===
+Status: Created
+
+Summary:
+New resource class implementing a multicast-observable CoAP resource with
+Group OSCORE support.
+
+Changes:
+- Extends OSCoreResource
+- handleGET: routes to phantom request handling, informative response, or
+  group observation setup based on state
+- sendInformativeResponse: sends 5.03 with CBOR payload per Section 4.2
+- setUpGroupObservation: allocates token, creates phantom request, injects
+  it via endpoint.sendRequest()
+- handlePhantomRequest: establishes group observation, stores ph_req and
+  last_notif, sends informative responses to pending clients
+- handlePhantomGET: handles subsequent notifications on the phantom exchange
+- cancelGroupObservation: sends cancellation 5.03 per Section 4.5
+- encryptNotificationForLastNotif: encrypts notification with Group OSCORE
+  for last_notif storage
+- Configurable observer threshold for triggering group observation
+- Supports both OSCORE-protected and unprotected modes
+
+Reasoning:
+This is the main server-side resource implementation for the RFC. It
+orchestrates the entire group observation lifecycle: detecting when to start,
+creating phantom requests, building informative responses, sending multicast
+notifications, and handling cancellation.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/OSCoreCtxDB.java ===
+Status: Modified
+
+Summary:
+Adds phantom request values storage methods to the OSCORE context DB interface.
+
+Changes:
+- Added addPhantomRequestValues(Token, PhantomRequestValues)
+- Added getPhantomRequestValues(Token)
+- Added removePhantomRequestValues(Token)
+
+Reasoning:
+Interface contract for storing phantom request OSCORE parameters, used by
+clients when decrypting multicast notifications.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/OSCoreResource.java ===
+Status: Modified
+
+Summary:
+Relaxes the OSCORE-only resource check for re-processing during observe
+notifications.
+
+Changes:
+- Modified handleRequest(): skips the "must have OSCORE option" check when
+  the exchange already has an established observe relation
+
+Reasoning:
+When a resource change triggers a notification on an existing observe relation,
+the re-processing of the request through the resource handler no longer has the
+OSCORE option (it was consumed during initial request processing). The relation
+being non-null indicates the request was already authenticated.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/OSSerializer.java ===
+Status: Modified
+
+Summary:
+Handles phantom requests in AAD computation by using empty OSCORE option.
+
+Changes:
+- Added check for isPhantomRequest: if true, sets oscoreOption to Bytes.EMPTY
+- This ensures the AAD computed during decryption matches the AAD used during
+  encryption
+
+Reasoning:
+Phantom requests are created with an empty OSCORE option. Both encryption
+(server side) and decryption (client side) must use the same OSCORE option
+value in the AAD for the cryptographic verification to succeed.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/ObjectSecurityLayer.java ===
+Status: Modified
+
+Summary:
+Adds phantom request recognition, protected request storage, and response
+suppression in the OSCORE layer.
+
+Changes:
+- Added isPhantomRequest() method: checks if OSCORE-protected request's KID
+  matches the server's own sender ID (verifies self-generated phantom)
+- In receiveRequest(): stores raw bytes as protectedRequest on the exchange,
+  marks request as phantom, logs recognition
+- In sendResponse(): adds two suppress checkpoints — one for non-OSCORE
+  responses (before encryption) and one for OSCORE responses (after encryption
+  to capture last_notif state)
+- Propagates serverInjection/clientInjection flags from original to encrypted
+  request
+
+Reasoning:
+The OSCORE layer must recognize phantom requests (by matching KID to server's
+own sender ID), store their encrypted form for ph_req, and suppress responses
+during setup while still allowing OSCORE processing for last_notif state.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/PhantomRequestValues.java ===
+Status: Created
+
+Summary:
+New immutable value class holding OSCORE header parameters from a phantom
+registration request.
+
+Changes:
+- Fields: kid, piv, kidContext
+- Constructor and getters only
+
+Reasoning:
+Clients cache these values when processing the informative response. They are
+needed to reconstruct the AAD when decrypting multicast notifications that
+share the observation's token.
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/RequestDecryptor.java ===
+Status: Modified
+
+Summary:
+Passes null for the new phantomValues parameter.
+
+Changes:
+- Updated call to decryptAndDecode() to include null as the phantomValues arg
+
+Reasoning:
+Request decryption doesn't use phantom values (they are only relevant for
+response decryption).
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/RequestEncryptor.java ===
+Status: Modified
+
+Summary:
+Skips OSCORE encryption for phantom requests.
+
+Changes:
+- Added check: if request.getIsPhantomRequest(), return the request
+  unmodified (skip encryptEncode)
+
+Reasoning:
+When the server's OSCORE layer processes an outgoing phantom request, it
+would normally encrypt it. But phantom requests go through a
+serialize-then-re-parse cycle, so the encryption happens on the receive side
+instead. Skipping here prevents double encryption.
+
+Notes:
+- The early return skips all post-encryption processing (DET_REQ handling,
+  option encoding). This is correct for phantom requests but the intent
+  should be documented more clearly.
+
+
+=== FILE: cf-oscore/src/main/java/org/eclipse/californium/oscore/ResponseDecryptor.java ===
+Status: Modified
+
+Summary:
+Integrates phantom request values into response decryption.
+
+Changes:
+- Retrieves phantomValues from db.getPhantomRequestValues(token)
+- Passes phantomValues to decryptAndDecode()
+
+Reasoning:
+When decrypting a multicast notification, the client must use the phantom
+request's KID and PIV for AAD reconstruction, not the original observe
+request's values.
+
+=== FILE: demo-apps/cf-helloworld-client/src/main/java/org/eclipse/californium/examples/AClient.java ===
+Status: Created
+
+Summary:
+New CLI entry point for the demo client application.
+
+Changes:
+- Supports host/port override via additional arguments
+- Supports 3 OSCORE multicast client instances (sender 1, 2, 3)
+
+Reasoning:
+Provides a single entry point for running different client modes from the
+command line, supporting the test cases defined in the performance evaluation.
+
+
+=== FILE: demo-apps/cf-helloworld-client/src/main/java/org/eclipse/californium/examples/MulticastObserveClient.java ===
+Status: Created
+
+Summary:
+New client implementation for OSCORE/non-OSCORE protected multicast observe notifications.
+
+Changes:
+- Full Group OSCORE security context setup with EdDSA countersignatures
+- Supports 3 client identities (sender_1, sender_2, sender_3)
+- Handles informative response: parses ObservationInfo, verifies and decrypts
+  phantom request (ph_req), stores phantom request values in context DB
+- Decrypts last_notif using Group OSCORE
+- Sets up multicast receiver and phantom observe relation
+
+Reasoning:
+Implements the full client-side flow from RFC Sections 5 and 9.3: receive
+informative response, decrypt and verify phantom request, join multicast
+group, register observe relation, receive and decrypt multicast notifications.
+
+
+=== FILE: demo-apps/cf-helloworld-server/src/main/java/org/eclipse/californium/examples/OSCOREAHelloWorldServer.java ===
+Status: Created
+
+Summary:
+New server application supporting Group OSCORE multicast observe notifications.
+
+Changes:
+- Creates CoapServer with multicast-capable endpoint
+- Sets up Group OSCORE security contexts with EdDSA countersignatures
+- Configures server as sender (0x52) with 3 recipient contexts (clients)
+- Adds server's own ID as recipient for phantom request self-decryption
+- Creates MulticastObservableResource at "/OSCORE-mult"
+- Configures multicast group at 224.0.1.187:61616
+- Sets GroupObservationsInfo senderId for phantom request recognition
+
+Reasoning:
+Main server entry point for the multicast observe demo, implementing the
+full server-side setup from RFC Sections 4 and 9.2.
+
+Notes:
+- The server adds its own sender ID as a recipient context so it can decrypt
+  its own phantom requests — this is a clever but non-obvious pattern.
+
+=== FILE: element-connector/src/main/java/org/eclipse/californium/elements/UDPConnector.java ===
+Status: Modified
+
+Summary:
+Adds a dedicated MulticastSocket for outgoing multicast traffic to work
+around macOS limitations.
+
+Changes:
+- Added MulticastSocket multicastSendSocket field
+- During init: if multicast receivers are configured, creates a separate
+  MulticastSocket bound to an ephemeral port on the same interface
+- In send(): routes traffic to multicastSendSocket when destination is a
+  multicast address
+- Closes multicastSendSocket in stop()
+
+Reasoning:
+On macOS, a DatagramSocket bound to a fixed port cannot send to multicast
+addresses. A separate MulticastSocket bound to an ephemeral port on the
+same interface resolves this OS-specific limitation.
